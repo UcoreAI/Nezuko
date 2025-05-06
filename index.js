@@ -8,14 +8,14 @@ const axios = require('axios');
 const _ = require('lodash');
 const { Boom } = require('@hapi/boom');
 const PhoneNumber = require('awesome-phonenumber');
-const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); // Corrected path
+const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); // Use Function.js
 const express = require('express');
 const qrcode = require('qrcode');
 
 // --- Variable to store the latest QR string ---
 let currentQR = null; 
 let lastConnectionStatus = null;
-let botStartTime = Date.now(); // Track start time
+let botStartTime = Date.now(); 
 // --------------------------------------------------
 
 // --- Make session directory if needed ---
@@ -26,46 +26,45 @@ if (!fs.existsSync(sessionDir)){
 }
 // -----------------------------------------
 
-// --- Store --- Use InMemoryStore for basic message handling
-const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
-store?.bind(sock.ev); // Bind events if store exists
-// -----------
 
 async function startNezuko() {
     console.log(chalk.greenBright("Attempting to start Nezuko bot..."))
     console.log(chalk.yellow(`Using session directory: ${sessionDir}`));
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir); // Use correct path
 
+    // ---- DEFINE store INSIDE startNezuko ----
+    const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
+    // -----------------------------------------
+
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true, // Keep true for console debugging
-        browser: [global.namebot || 'UcoreAI','Safari','1.0.0'], // Use bot name from config
+        printQRInTerminal: true, 
+        browser: [global.namebot || 'UcoreAI','Safari','1.0.0'], 
         auth: state,
-        // Provide store functions to Baileys
         getMessage: async (key) => {
+            // ---- Use store variable defined above ----
             const msg = await store.loadMessage(key.remoteJid, key.id);
+            // -------------------------------------------
             return msg?.message || undefined;
         },
     });
 
-    // --- Bind store events (essential for message handling) ---
+    // --- Bind store events AFTER sock is defined ---
     store?.bind(sock.ev);
-    // --------------------------------------------------------
+    // ---------------------------------------------
 
     // --- Use Nezuko's message handler ---
-    // This requires the 'handler' folder and 'handler.js' inside it
     const messageHandlerPath = path.join(__dirname, 'handler', 'handler.js');
     if (fs.existsSync(messageHandlerPath)) {
         const messageHandler = require(messageHandlerPath);
         if (typeof messageHandler === 'function') {
             console.log("Binding message handler from handler/handler.js...");
-            messageHandler(sock, store); // Pass sock and store
+            messageHandler(sock, store); 
         } else {
             console.error("Error: handler/handler.js found but does not export a function.");
         }
     } else {
         console.error("Error: handler/handler.js not found. Basic message logging only.");
-        // Fallback basic logging if handler is missing
          sock.ev.on('messages.upsert', async m => {
              console.log("Received message (basic handler):", JSON.stringify(m, undefined, 2));
          });
@@ -80,7 +79,7 @@ async function startNezuko() {
             console.log(chalk.yellowBright("QR code received from Baileys."));
             currentQR = qr;
         }
-        lastConnectionStatus = connection || lastConnectionStatus; // Store the latest *defined* status
+        lastConnectionStatus = connection || lastConnectionStatus; 
 
         if (connection === 'close') {
              let reason = new Boom(lastDisconnect?.error)?.output.statusCode
@@ -88,18 +87,14 @@ async function startNezuko() {
              currentQR = null; 
              lastConnectionStatus = `close - ${reason}`;
              
-             // Determine if it should reconnect or terminate
              const shouldReconnect = (reason !== DisconnectReason.loggedOut && reason !== DisconnectReason.connectionReplaced && reason !== DisconnectReason.badSession);
 
              if (shouldReconnect) {
                  console.log("Attempting to reconnect...");
-                 // Add a delay before attempting reconnect to avoid spamming
-                 await sleep(5000); // Wait 5 seconds
+                 await sleep(5000); 
                  startNezuko().catch(err => console.error("Error during reconnect attempt:", err)); 
              } else {
                   console.log("Not reconnecting due to logout/replacement/bad session.");
-                  // Consider exiting the process if running standalone, or let Docker handle restart
-                  // process.exit(1); // Optional: Force exit if not recoverable
              }
         } else if (connection === 'open') {
              console.log(chalk.greenBright(`Successfully Connected to WA! Logged in as: ${sock.user?.id?.split(':')[0] || sock.user?.id || 'Unknown'}`));
@@ -110,29 +105,27 @@ async function startNezuko() {
 
     sock.ev.on('creds.update', saveCreds)
 
-    // --- Add basic error logging ---
     sock.ev.on('error', (err) => {
         console.error(chalk.redBright("Socket Error:"), err);
     });
-    // -------------------------------
-
+    
     return sock
 }
 
 // --- Setup Express Web Server ---
 const app = express();
-const webServerPort = process.env.PORT || 8080; // Use PORT from environment or default to 8080
+const webServerPort = process.env.PORT || 8080; 
 
 app.get('/qr', async (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     let qrImageData = null;
     let statusMessage = `Current Status: ${lastConnectionStatus || 'Initializing...'}`;
-    let pageRefresh = 10; // Default refresh interval
+    let pageRefresh = 10; 
 
     if (lastConnectionStatus === 'open') {
         statusMessage = `<span style="color: green; font-weight: bold;">CONNECTED!</span><br>Bot Name: ${global.namebot}<br>Owner: ${global.nameowner} (${global.numberowner})<br>You can close this page.`;
         currentQR = null; 
-        pageRefresh = 300; // Refresh much less often when connected
+        pageRefresh = 300; 
     } else if (currentQR) {
          statusMessage = 'Scan the QR code below with WhatsApp:';
         try {
@@ -144,7 +137,7 @@ app.get('/qr', async (req, res) => {
         }
     } else if (lastConnectionStatus && lastConnectionStatus.startsWith('close')) {
          statusMessage = `<span style="color: red;">Connection Closed: ${lastConnectionStatus}. Bot is attempting to reconnect... Check logs.</span>`;
-         pageRefresh = 20; // Refresh reasonably quickly when closed
+         pageRefresh = 20; 
     } else {
         statusMessage = 'Waiting for QR code... Page will refresh.';
     }
@@ -174,13 +167,12 @@ app.get('/qr', async (req, res) => {
 });
 
  app.get('/', (req, res) => {
-     // Redirect root to the QR page
      res.redirect('/qr');
  });
 
 app.listen(webServerPort, () => {
     console.log(chalk.blueBright(`QR Code Web Server listening on internal port ${webServerPort}`));
-    console.log(chalk.blueBright(`Visit http://<your-elestio-url>/qr to scan the code`)); // Adjust port if using reverse proxy
+    console.log(chalk.blueBright(`Visit http://<your-elestio-url>/qr to scan the code`)); 
 });
 // --- End Express Web Server Setup ---
 
@@ -188,13 +180,9 @@ app.listen(webServerPort, () => {
 // --- Start the Bot ---
 startNezuko().catch(err => {
    console.error(chalk.redBright("FATAL ERROR during bot startup:"), err);
-   // Optional: Exit if startup fails catastrophically
-   // process.exit(1); 
 });
 // --------------------
 
-
-// Keep process alive (optional)
 process.on('unhandledRejection', (err) => {
     console.error(chalk.redBright('Unhandled Promise Rejection:'), err);
 });
