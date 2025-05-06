@@ -17,9 +17,8 @@ WORKDIR /root/Nezuko
 COPY package.json ./
 COPY package-lock.json* ./
 
-# 5. Install dependencies using npm (as package-lock.json exists)
-#    Rebuild any native dependencies
-RUN npm install --omit=dev && npm rebuild
+# 5. Install ALL dependencies using npm (including dev) and rebuild
+RUN npm install && npm rebuild
 
 # 6. Copy the rest of your application code into the container
 COPY . .
@@ -28,5 +27,5 @@ COPY . .
 # 8. --- NO EXPOSE needed ---
 # 9. --- NO ENTRYPOINT needed ---
 
-# 10. Define the simplest possible command to run the app
+# 10. Define the command to run the app
 CMD ["node", "index.js"]
