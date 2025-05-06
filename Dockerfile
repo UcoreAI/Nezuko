@@ -17,15 +17,18 @@ WORKDIR /root/Nezuko
 COPY package.json ./
 COPY package-lock.json* ./
 
-# 5. Install ALL dependencies using npm (including dev) and rebuild
+# 5. Install ALL dependencies using npm (including express, qrcode)
 RUN npm install && npm rebuild
 
 # 6. Copy the rest of your application code into the container
 COPY . .
 
 # 7. --- NO entrypoint.sh needed ---
-# 8. --- NO EXPOSE needed ---
+
+# 8. Expose the port the web server will run on
+EXPOSE 8080
+
 # 9. --- NO ENTRYPOINT needed ---
 
-# 10. Define the command to run the app
+# 10. Define the command to run the combined bot and web server
 CMD ["node", "index.js"]
