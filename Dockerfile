@@ -1,14 +1,40 @@
-FROM fedora:38
+# 1. Use an official Node.js v18 image based on Debian Bullseye
+FROM node:18-bullseye
 
-RUN sudo dnf -y update &&\
-    sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm &&\
-    sudo dnf install -y git ffmpeg ImageMagick nodejs yarnpkg libwebp &&\
-    sudo dnf clean all -y
+# 2. Install essential system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    ffmpeg \
+    imagemagick \
+    webp \
+    ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /nezuko
+# 3. Set the working directory inside the container
+WORKDIR /root/Nezuko
 
-COPY . /nezuko
+# 4. Copy package.json and yarn.lock (if it exists)
+#    Use separate COPY for package.json first for better layer caching
+COPY package.json ./
+COPY yarn.lock* ./
 
-RUN yarn
+# 5. Install dependencies using npm (as package-lock.json exists)
+#    Rebuild any native dependencies
+RUN npm install --omit=dev && npm rebuild
 
-CMD ["bash","loop.sh"]
+# 6. Copy the rest of your application code into the container
+COPY . .
+
+# 7. Copy the entrypoint script and make it executable
+COPY entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# 8. Expose the port (though this bot doesn't seem to run a server)
+#    Keeping EXPOSE might be useful for future debugging or extensions
+# EXPOSE 5000 # Let's comment this out as it doesn't seem needed
+
+# 9. Set the entrypoint script to run first
+ENTRYPOINT ["entrypoint.sh"]
+
+# 10. Define the default command that the entrypoint script will execute
+CMD ["node", "index.js"]
