@@ -13,10 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 3. Set the working directory inside the container
 WORKDIR /root/Nezuko
 
-# 4. Copy package.json and yarn.lock (if it exists)
+# 4. Copy package.json and yarn.lock (if it exists) / package-lock.json
 #    Use separate COPY for package.json first for better layer caching
 COPY package.json ./
-COPY yarn.lock* ./
+COPY package-lock.json* ./
+# COPY yarn.lock* ./ # Commented out as package-lock exists
 
 # 5. Install dependencies using npm (as package-lock.json exists)
 #    Rebuild any native dependencies
@@ -30,11 +31,11 @@ COPY entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # 8. Expose the port (though this bot doesn't seem to run a server)
-#    Keeping EXPOSE might be useful for future debugging or extensions
-# EXPOSE 5000 # Let's comment this out as it doesn't seem needed
+# EXPOSE 8080 # Keep commented out unless needed
 
 # 9. Set the entrypoint script to run first
 ENTRYPOINT ["entrypoint.sh"]
 
 # 10. Define the default command that the entrypoint script will execute
-CMD ["node", "index.js"]
+#     Use main.js instead of index.js
+CMD ["node", "main.js"]
