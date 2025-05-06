@@ -41,6 +41,7 @@ async function startNezuko() {
         printQRInTerminal: true, 
         browser: [global.namebot || 'UcoreAI','Safari','1.0.0'], 
         auth: state,
+        // Provide store functions to Baileys
         getMessage: async (key) => {
             // ---- Use store variable defined above ----
             const msg = await store.loadMessage(key.remoteJid, key.id);
@@ -167,6 +168,7 @@ app.get('/qr', async (req, res) => {
 });
 
  app.get('/', (req, res) => {
+     // Redirect root to the QR page
      res.redirect('/qr');
  });
 
@@ -186,3 +188,12 @@ startNezuko().catch(err => {
 process.on('unhandledRejection', (err) => {
     console.error(chalk.redBright('Unhandled Promise Rejection:'), err);
 });
+
+// File watching (Keep commented out for Docker)
+// let file = require.resolve(__filename)
+// fs.watchFile(file, () => {
+//     fs.unwatchFile(file)
+//     console.log(chalk.redBright(`Update ${__filename}`))
+//     delete require.cache[file]
+//     require(file) 
+// })
