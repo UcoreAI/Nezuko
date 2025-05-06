@@ -13,11 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 3. Set the working directory inside the container
 WORKDIR /root/Nezuko
 
-# 4. Copy package.json and yarn.lock (if it exists) / package-lock.json
-#    Use separate COPY for package.json first for better layer caching
+# 4. Copy package.json and package-lock.json
 COPY package.json ./
 COPY package-lock.json* ./
-# COPY yarn.lock* ./ # Commented out as package-lock exists
 
 # 5. Install dependencies using npm (as package-lock.json exists)
 #    Rebuild any native dependencies
@@ -26,16 +24,14 @@ RUN npm install --omit=dev && npm rebuild
 # 6. Copy the rest of your application code into the container
 COPY . .
 
-# 7. Copy the entrypoint script and make it executable
-COPY entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# 7. --- NO entrypoint.sh needed ---
 
 # 8. Expose the port (though this bot doesn't seem to run a server)
 # EXPOSE 8080 # Keep commented out unless needed
 
-# 9. Set the entrypoint script to run first
-ENTRYPOINT ["entrypoint.sh"]
+# 9. --- NO ENTRYPOINT line ---
 
-# 10. Define the default command that the entrypoint script will execute
-#     Use main.js instead of index.js
-CMD ["node", "main.js"]
+# 10. Define the command to generate config and run the app
+#     Uses environment variables set in Elestio
+#     Note: Use sh -c to allow environment variable expansion and multiple commands
+CMD ["sh", "-c", "cat > config.js <<EOF && node index.js\nconsole.log(\"Loading Configuration...\");\nglobal.owner = '${OWNER_NUMBER:?OWNER_NUMBER env var not set}';\nglobal.mods = ['${OWNER_NUMBER}'];\nglobal.prems = ['${OWNER_NUMBER}'];\nglobal.nameowner = '${NAME_OWNER:?NAME_OWNER env var not set}';\nglobal.numberowner = '${OWNER_NUMBER}';\nglobal.namebot = '${NAME_BOT:?NAME_BOT env var not set}';\nglobal.sgc = 'https://chat.whatsapp.com/...';\nglobal.gc = 'https://chat.whatsapp.com/...';\nglobal.instagram = 'https://www.instagram.com/...';\nglobal.wm = \"${NAME_BOT}\";\nglobal.sessionName = 'session';\nglobal.prefix = '${PREFIX:-!}';\nglobal.pairingNum = process.env.PAIRING_NUMBER || \"\";\nglobal.APIs = { zenz: 'https://zenzapis.xyz' };\nglobal.APIKeys = { 'https://zenzapis.xyz': '${ZENZ_API_KEY:-YOUR_API_KEY}' };\nglobal.autoRecord = ${AUTO_RECORD:-false};\nglobal.autoTyping = ${AUTO_TYPING:-false};\nglobal.autoread = ${AUTO_READ:-false};\nglobal.public = ${PUBLIC_MODE:-true};\nglobal.readsw = ${READSW_OWNER_ONLY:-false};\nglobal.mods = process.env.MODS ? process.env.MODS.split(',') : ['${OWNER_NUMBER}'];\nglobal.prems = process.env.PREMS ? process.env.PREMS.split(',') : ['${OWNER_NUMBER}'];\nconsole.log(\"Owner:\", global.owner);\nconsole.log(\"Bot Name:\", global.namebot);\nconsole.log(\"Prefix:\", global.prefix);\nconsole.log(\"Configuration Loaded.\");\nlet file = require.resolve(__filename);\n//fs.watchFile(file, () => { fs.unwatchFile(file); console.log(chalk.redBright(\\`Update'\${__filename}'\\`)); delete require.cache[file]; require(file) }); // Commented out watchFile\nEOF\n"]
