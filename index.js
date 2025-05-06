@@ -8,7 +8,7 @@ const axios = require('axios');
 const _ = require('lodash')
 const { Boom } = require('@hapi/boom')
 const PhoneNumber = require('awesome-phonenumber')
-const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/myfunc')
+const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function')
 
 // --- NEW: Require Express and QR Code Generator ---
 const express = require('express');
