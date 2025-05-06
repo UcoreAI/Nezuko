@@ -24,16 +24,9 @@ RUN npm install --omit=dev && npm rebuild
 # 6. Copy the rest of your application code into the container
 COPY . .
 
-# 7. Copy the entrypoint script and make it executable
-COPY entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# 7. --- NO entrypoint.sh needed ---
+# 8. --- NO EXPOSE needed ---
+# 9. --- NO ENTRYPOINT needed ---
 
-# 8. Expose the port (though this bot doesn't seem to run a server)
-# EXPOSE 8080 # Keep commented out unless needed
-
-# 9. Set the entrypoint script to run first
-ENTRYPOINT ["entrypoint.sh"]
-
-# 10. Define the default command that the entrypoint script will execute
-#     Use index.js
+# 10. Define the simplest possible command to run the app
 CMD ["node", "index.js"]
