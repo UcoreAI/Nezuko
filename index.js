@@ -1,32 +1,37 @@
-require('./config'); // Loads your hardcoded UcoreAI/6010... config
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore } = require("@whiskeysockets/baileys");
+require('./config'); // Load hardcoded config.js first
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, jidDecode, proto, getAggregateVotesInPollMessage } = require("@whiskeysockets/baileys");
 const fs = require('fs');
 const pino = require('pino');
 const chalk = require('chalk');
 const path = require('path');
-const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, sleep } = require('./lib/Function'); 
-const express = require('express');
-const qrcode = require('qrcode');
+// const axios = require('axios'); // Not needed if not sending QR externally
+const _ = require('lodash');
 const { Boom } = require('@hapi/boom');
+const PhoneNumber = require('awesome-phonenumber');
+const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); 
+const express = require('express');
+const qrcode = require('qrcode'); 
+const qrcodeTerminal = require('qrcode-terminal');
 
 let currentQR = null; 
 let lastConnectionStatus = null;
-const sessionDir = path.join(__dirname, global.sessionName || 'session');
+let botStartTime = Date.now(); 
 
-if (!fs.existsSync(sessionDir)) {
+const sessionDir = path.join(__dirname, global.sessionName || 'session');
+if (!fs.existsSync(sessionDir)){
     fs.mkdirSync(sessionDir);
     console.log(chalk.green(`Created session directory: ${sessionDir}`));
 }
 
 async function startNezuko() {
-    console.log(chalk.blueBright("Attempting to start Nezuko bot (UcoreAI)..."));
+    console.log(chalk.greenBright("Attempting to start Nezuko bot (UcoreAI)..."));
     console.log(chalk.yellow(`Using session directory: ${sessionDir}`));
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir); 
     const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
 
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true, // Keep for console debugging
+        printQRInTerminal: true, 
         browser: [global.namebot || 'UcoreAI','Safari','3.0'], 
         auth: state,
         getMessage: async (key) => {
@@ -37,18 +42,17 @@ async function startNezuko() {
 
     store?.bind(sock.ev);
 
-    // Load Nezuko's main message handler
     try {
         const messageHandlerModule = require('./handler/message.js'); 
         if (messageHandlerModule && typeof messageHandlerModule.messageHandler === 'function') {
-            console.log("Binding main message handler from handler/message.js...");
-            sock.ev.on('messages.upsert', async (chatUpdate) => {
-                try {
+             console.log("Binding main message handler from handler/message.js...");
+             sock.ev.on('messages.upsert', async (chatUpdate) => {
+                 try {
                     await messageHandlerModule.messageHandler(sock, chatUpdate, store);
-                } catch (e) {
-                   console.error(chalk.redBright("Error in message handler:"), e);
-                }
-            });
+                 } catch (e) {
+                    console.error(chalk.redBright("Error in message handler:"), e);
+                 }
+             });
         } else {
             console.error(chalk.yellowBright("Nezuko message handler (handler/message.js or its export) not found/not a function. Using basic logging."));
             sock.ev.on('messages.upsert', m => console.log(chalk.magenta("Basic msg log:"), JSON.stringify(m, undefined, 2)));
@@ -64,7 +68,8 @@ async function startNezuko() {
 
         if (qr) {
             console.log(chalk.yellowBright("QR code received from Baileys. Web page will update."));
-            currentQR = qr;
+            // qrcodeTerminal.generate(qr, { small: true }); // Console QR
+            currentQR = qr; 
         }
         lastConnectionStatus = connection || lastConnectionStatus;
 
@@ -121,12 +126,12 @@ app.get('/qr', async (req, res) => {
         statusMessage = 'Waiting for QR code... Page will refresh.';
     }
 
-    res.send(\`
-        <!DOCTYPE html>
+    // Send HTML page - CRITICAL: Ensure NO backslash before the starting backtick
+    res.send(`<!DOCTYPE html>
         <html>
         <head>
             <title>WhatsApp QR Code - ${global.namebot || 'Bot'}</title>
-            <meta http-equiv="refresh" content="\${pageRefresh}"> 
+            <meta http-equiv="refresh" content="${pageRefresh}"> 
             <style>
                 body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 30px; }
                 img { border: 1px solid #ccc; margin-bottom: 20px; width: 300px; height: 300px; }
@@ -136,19 +141,18 @@ app.get('/qr', async (req, res) => {
         </head>
         <body>
             <h1>Link Bot: ${global.namebot || 'WhatsApp Bot'}</h1>
-            <div class="status">\${statusMessage}</div>
-            \${qrImageData ? \`<img src="\${qrImageData}" alt="WhatsApp QR Code">\` : ''}
-            <p>(Page auto-refreshes every \${pageRefresh} seconds)</p>
+            <div class="status">${statusMessage}</div>
+            ${qrImageData ? `<img src="${qrImageData}" alt="WhatsApp QR Code">` : ''}
+            <p>(Page auto-refreshes every ${pageRefresh} seconds)</p>
          </body>
-        </html>
-    \`);
+        </html>`); // Ensure backtick is the very last character here
 });
 
-app.get('/', (req, res) => res.redirect('/qr'));
+ app.get('/', (req, res) => res.redirect('/qr'));
 
 app.listen(webServerPort, () => {
-    console.log(chalk.blueBright(\`QR Code Web Server listening on internal port \${webServerPort}\`));
-    console.log(chalk.blueBright(\`Access QR page at /qr on your service URL.\`)); 
+    console.log(chalk.blueBright(`QR Code Web Server listening on internal port ${webServerPort}`));
+    console.log(chalk.blueBright(`Access QR page at /qr on your service URL.`)); 
 });
 
 startNezuko().catch(err => console.error(chalk.redBright("FATAL ERROR during bot startup:"), err));
