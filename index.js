@@ -43,7 +43,7 @@ async function startNezuko() {
     store?.bind(sock.ev);
 
     try {
-        const messageHandlerModule = require('./handler/message.js'); 
+        const messageHandlerModule = require('./handler/MessageHandler.js'); 
         if (messageHandlerModule && typeof messageHandlerModule.messageHandler === 'function') {
              console.log("Binding main message handler from handler/message.js...");
              sock.ev.on('messages.upsert', async (chatUpdate) => {
