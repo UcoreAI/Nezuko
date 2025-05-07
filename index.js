@@ -41,11 +41,8 @@ async function startNezuko() {
         printQRInTerminal: true, 
         browser: [global.namebot || 'UcoreAI','Safari','1.0.0'], 
         auth: state,
-        // Provide store functions to Baileys
         getMessage: async (key) => {
-            // ---- Use store variable defined above ----
             const msg = await store.loadMessage(key.remoteJid, key.id);
-            // -------------------------------------------
             return msg?.message || undefined;
         },
     });
@@ -143,13 +140,13 @@ app.get('/qr', async (req, res) => {
         statusMessage = 'Waiting for QR code... Page will refresh.';
     }
 
-    // Send HTML page
-    res.send(\`
+    // Send HTML page using correctly escaped template literal
+    res.send(`
         <!DOCTYPE html>
         <html>
         <head>
             <title>WhatsApp QR Code - ${global.namebot || 'Bot'}</title>
-            <meta http-equiv="refresh" content="\${pageRefresh}"> 
+            <meta http-equiv="refresh" content="${pageRefresh}"> 
             <style>
                 body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 30px; }
                 img { border: 1px solid #ccc; margin-bottom: 20px; width: 300px; height: 300px; }
@@ -159,12 +156,12 @@ app.get('/qr', async (req, res) => {
         </head>
         <body>
             <h1>Link Bot: ${global.namebot || 'WhatsApp Bot'}</h1>
-            <div class="status">\${statusMessage}</div>
-            \${qrImageData ? \`<img src="\${qrImageData}" alt="WhatsApp QR Code">\` : ''}
-            <p>(Page auto-refreshes every \${pageRefresh} seconds)</p>
+            <div class="status">${statusMessage}</div>
+            ${qrImageData ? `<img src="${qrImageData}" alt="WhatsApp QR Code">` : ''}
+            <p>(Page auto-refreshes every ${pageRefresh} seconds)</p>
          </body>
         </html>
-    \`);
+    `); // Ensure backtick is the very last character here
 });
 
  app.get('/', (req, res) => {
@@ -173,8 +170,8 @@ app.get('/qr', async (req, res) => {
  });
 
 app.listen(webServerPort, () => {
-    console.log(chalk.blueBright(\`QR Code Web Server listening on internal port \${webServerPort}\`));
-    console.log(chalk.blueBright(\`Visit http://<your-elestio-url>/qr to scan the code\`)); 
+    console.log(chalk.blueBright(`QR Code Web Server listening on internal port ${webServerPort}`));
+    console.log(chalk.blueBright(`Visit http://<your-elestio-url>/qr to scan the code`)); 
 });
 // --- End Express Web Server Setup ---
 
@@ -188,12 +185,3 @@ startNezuko().catch(err => {
 process.on('unhandledRejection', (err) => {
     console.error(chalk.redBright('Unhandled Promise Rejection:'), err);
 });
-
-// File watching (Keep commented out for Docker)
-// let file = require.resolve(__filename)
-// fs.watchFile(file, () => {
-//     fs.unwatchFile(file)
-//     console.log(chalk.redBright(\`Update \${__filename}\`))
-//     delete require.cache[file]
-//     require(file) 
-// })
