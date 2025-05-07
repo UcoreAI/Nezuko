@@ -4,13 +4,14 @@ const fs = require('fs');
 const pino = require('pino');
 const chalk = require('chalk');
 const path = require('path');
-const axios = require('axios'); 
+// const axios = require('axios'); // axios might not be needed if not sending QR externally
 const _ = require('lodash');
 const { Boom } = require('@hapi/boom');
 const PhoneNumber = require('awesome-phonenumber');
 const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); 
 const express = require('express');
-const qrcode = require('qrcode');
+const qrcode = require('qrcode'); // For generating QR image for the web page
+const qrcodeTerminal = require('qrcode-terminal'); // For console QR
 
 // --- Variable to store the latest QR string ---
 let currentQR = null; 
@@ -26,16 +27,23 @@ if (!fs.existsSync(sessionDir)){
 }
 // -----------------------------------------
 
+// --- Store --- Use InMemoryStore for basic message handling
+// const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
+// Note: Nezuko's original index.js might set up its own store or not use one prominently.
+// For now, we'll initialize a basic one if needed by Baileys, but message handling will be key.
+
 async function startNezuko() {
     console.log(chalk.greenBright("Attempting to start Nezuko bot..."))
     console.log(chalk.yellow(`Using session directory: ${sessionDir}`));
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir); 
 
+    // --- Define store here to be in scope ---
     const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
+    // ----------------------------------------
 
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true, 
+        printQRInTerminal: false, // Set to false, we will handle QR display
         browser: [global.namebot || 'UcoreAI','Safari','1.0.0'], 
         auth: state,
         getMessage: async (key) => {
@@ -44,87 +52,112 @@ async function startNezuko() {
         },
     });
 
+    // --- Bind store events AFTER sock is defined ---
     store?.bind(sock.ev);
+    // ---------------------------------------------
 
-    // --- Require and use Control.js as per original Nezuko structure ---
-    try {
-        const Control = require('./Control'); // Assuming Control.js is in the root
-        if (Control && typeof Control.Komari === 'function') {
-            console.log("Initializing main bot handler from Control.js (Komari)...");
-            Control.Komari(sock, store); // Pass sock and store if needed by Komari
-        } else if (Control && typeof Control === 'function') { // If Control itself is the function
-            console.log("Initializing main bot handler from Control.js (direct export)...");
-            Control(sock, store);
+    // --- Connection Update Logic (Handles QR, Connect, Disconnect) ---
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        console.log(chalk.cyanBright(`Connection update: ${connection || 'Unknown status'}`));
+
+        if (qr) {
+            console.log(chalk.yellowBright("QR code string received from Baileys. Web page will update."));
+            qrcodeTerminal.generate(qr, { small: true }); // Also print to console for easy debugging
+            currentQR = qr; // Store for web server
         }
-        else {
-            console.error("Error: Control.js found but does not export a usable handler function (Komari or default).");
-            // Fallback if Control.js structure is unexpected
+        lastConnectionStatus = connection || lastConnectionStatus;
+
+        if (connection === 'close') {
+            let reason = new Boom(lastDisconnect?.error)?.output.statusCode;
+            console.log(chalk.redBright(`Connection closed, reason: ${reason}, Error: ${lastDisconnect?.error}`));
+            currentQR = null;
+            lastConnectionStatus = `close - ${reason}`;
+            
+            const shouldReconnect = (
+                reason !== DisconnectReason.loggedOut &&
+                reason !== DisconnectReason.connectionReplaced &&
+                reason !== DisconnectReason.badSession &&
+                reason !== DisconnectReason.multideviceMismatch // Added this
+            );
+
+            if (shouldReconnect) {
+                console.log(chalk.yellowBright("Attempting to reconnect..."));
+                await sleep(5000);
+                startNezuko().catch(err => console.error(chalk.redBright("Error during reconnect attempt:"), err));
+            } else {
+                console.log(chalk.redBright("Not reconnecting. Please check the reason. If logged out, delete session and restart."));
+            }
+        } else if (connection === 'open') {
+            console.log(chalk.greenBright(`Successfully Connected to WA! Logged in as: ${sock.user?.id?.split(':')[0] || sock.user?.id || 'Unknown'}`));
+            console.log(chalk.blueBright(`QR Code page at http://<your-elestio-url>/qr will now show 'Connected!'`));
+            currentQR = null; // Clear QR as we are connected
+        }
+    });
+
+    // --- Credentials Update ---
+    sock.ev.on('creds.update', saveCreds);
+
+    // --- Message Upsert (Main Message Handling Logic from original Nezuko) ---
+    // This is where the bot processes incoming messages.
+    // The original Nezuko bot likely has a complex handler here.
+    // We'll put a placeholder. If the original Nezuko's index.js has 
+    // 'sock.ev.on('messages.upsert', async (mek) => { ... })' or similar,
+    // that ENTIRE block of code should be adapted and placed here.
+    // For now, let's assume the original message handling is done via a function 
+    // called 'messageUpsertHandler' which we would need to find or define.
+    // The actual message handling logic for Nezuko is in its `handler/message.js` 
+    // and called from an event emitter setup, often through `index.js` or `main.js`.
+    // We need to ensure that handler is called correctly.
+    
+    // Let's try to load and use the handler/message.js as intended
+    try {
+        const messageHandlerModule = require('./handler/message.js'); // Path to original handler
+        if (messageHandlerModule && typeof messageHandlerModule.messageHandler === 'function') {
+             console.log("Binding original message handler from handler/message.js...");
+             sock.ev.on('messages.upsert', async (chatUpdate) => {
+                 // The original handler might expect 'mek' or a different structure.
+                 // We might need to adapt how chatUpdate is passed.
+                 // For now, assume it takes (sock, chatUpdate, store)
+                 try {
+                    await messageHandlerModule.messageHandler(sock, chatUpdate, store);
+                 } catch (e) {
+                    console.error(chalk.redBright("Error in message handler:"), e);
+                 }
+             });
+        } else {
+            console.error(chalk.yellowBright("Original message handler (handler/message.js or its export) not found or not a function. Using basic logging."));
             sock.ev.on('messages.upsert', async m => {
-                console.log("Received message (basic fallback handler):", JSON.stringify(m, undefined, 2));
+                console.log(chalk.magentaBright("Received message (basic fallback):"), JSON.stringify(m, undefined, 2));
             });
         }
     } catch (e) {
-        console.error(chalk.redBright("Error requiring or initializing Control.js:"), e);
-        console.error("CRITICAL: Main bot logic could not be loaded. Check if Control.js exists and is correct.");
-         sock.ev.on('messages.upsert', async m => { // Basic fallback
-             console.log("Received message (critical fallback handler):", JSON.stringify(m, undefined, 2));
-         });
+        console.error(chalk.redBright("Error requiring handler/message.js:"), e);
+        sock.ev.on('messages.upsert', async m => { // Fallback
+            console.log(chalk.magentaBright("Received message (critical fallback):"), JSON.stringify(m, undefined, 2));
+        });
     }
-    // ------------------------------------------------------------------
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update
-        console.log(`Connection update: ${connection || 'Unknown status'}`); 
-
-        if (qr) {
-            console.log(chalk.yellowBright("QR code received from Baileys."));
-            currentQR = qr;
-        }
-        lastConnectionStatus = connection || lastConnectionStatus; 
-
-        if (connection === 'close') {
-             let reason = new Boom(lastDisconnect?.error)?.output.statusCode
-             console.log(chalk.redBright(`Connection closed, reason: ${reason}`))
-             currentQR = null; 
-             lastConnectionStatus = `close - ${reason}`;
-             
-             const shouldReconnect = (reason !== DisconnectReason.loggedOut && reason !== DisconnectReason.connectionReplaced && reason !== DisconnectReason.badSession);
-
-             if (shouldReconnect) {
-                 console.log("Attempting to reconnect...");
-                 await sleep(5000); 
-                 startNezuko().catch(err => console.error("Error during reconnect attempt:", err)); 
-             } else {
-                  console.log("Not reconnecting due to logout/replacement/bad session.");
-             }
-        } else if (connection === 'open') {
-             console.log(chalk.greenBright(`Successfully Connected to WA! Logged in as: ${sock.user?.id?.split(':')[0] || sock.user?.id || 'Unknown'}`));
-             console.log(chalk.blueBright(`QR Code page at http://<your-elestio-url>/qr will show connected.`));
-             currentQR = null; 
-        }
-    })
-
-    sock.ev.on('creds.update', saveCreds)
+    // --- End Message Handling ---
 
     sock.ev.on('error', (err) => {
         console.error(chalk.redBright("Socket Error:"), err);
     });
     
-    return sock
+    return sock;
 }
 
-// --- Setup Express Web Server ---
+// --- Setup Express Web Server for QR Code ---
 const app = express();
 const webServerPort = process.env.PORT || 8080; 
 
 app.get('/qr', async (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     let qrImageData = null;
-    let statusMessage = `Current Status: ${lastConnectionStatus || 'Initializing...'}`;
+    let statusMessage = `Bot: ${global.namebot} | Status: ${lastConnectionStatus || 'Initializing...'}`;
     let pageRefresh = 10; 
 
     if (lastConnectionStatus === 'open') {
-        statusMessage = `<span style="color: green; font-weight: bold;">CONNECTED!</span><br>Bot Name: ${global.namebot}<br>Owner: ${global.nameowner} (${global.numberowner})<br>You can close this page.`;
+        statusMessage = `<span style="color: green; font-weight: bold;">CONNECTED!</span><br>Bot Name: ${global.namebot}<br>Owner: ${global.nameowner} (${global.numberowner}).<br>You can close this page.`;
         currentQR = null; 
         pageRefresh = 300; 
     } else if (currentQR) {
