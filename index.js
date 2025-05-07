@@ -8,7 +8,7 @@ const axios = require('axios');
 const _ = require('lodash');
 const { Boom } = require('@hapi/boom');
 const PhoneNumber = require('awesome-phonenumber');
-const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); // Use Function.js
+const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); 
 const express = require('express');
 const qrcode = require('qrcode');
 
@@ -26,15 +26,12 @@ if (!fs.existsSync(sessionDir)){
 }
 // -----------------------------------------
 
-
 async function startNezuko() {
     console.log(chalk.greenBright("Attempting to start Nezuko bot..."))
     console.log(chalk.yellow(`Using session directory: ${sessionDir}`));
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir); 
 
-    // ---- DEFINE store INSIDE startNezuko ----
     const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
-    // -----------------------------------------
 
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
@@ -47,27 +44,33 @@ async function startNezuko() {
         },
     });
 
-    // --- Bind store events AFTER sock is defined ---
     store?.bind(sock.ev);
-    // ---------------------------------------------
 
-    // --- Use Nezuko's message handler ---
-    const messageHandlerPath = path.join(__dirname, 'handler', 'handler.js');
-    if (fs.existsSync(messageHandlerPath)) {
-        const messageHandler = require(messageHandlerPath);
-        if (typeof messageHandler === 'function') {
-            console.log("Binding message handler from handler/handler.js...");
-            messageHandler(sock, store); 
-        } else {
-            console.error("Error: handler/handler.js found but does not export a function.");
+    // --- Require and use Control.js as per original Nezuko structure ---
+    try {
+        const Control = require('./Control'); // Assuming Control.js is in the root
+        if (Control && typeof Control.Komari === 'function') {
+            console.log("Initializing main bot handler from Control.js (Komari)...");
+            Control.Komari(sock, store); // Pass sock and store if needed by Komari
+        } else if (Control && typeof Control === 'function') { // If Control itself is the function
+            console.log("Initializing main bot handler from Control.js (direct export)...");
+            Control(sock, store);
         }
-    } else {
-        console.error("Error: handler/handler.js not found. Basic message logging only.");
-         sock.ev.on('messages.upsert', async m => {
-             console.log("Received message (basic handler):", JSON.stringify(m, undefined, 2));
+        else {
+            console.error("Error: Control.js found but does not export a usable handler function (Komari or default).");
+            // Fallback if Control.js structure is unexpected
+            sock.ev.on('messages.upsert', async m => {
+                console.log("Received message (basic fallback handler):", JSON.stringify(m, undefined, 2));
+            });
+        }
+    } catch (e) {
+        console.error(chalk.redBright("Error requiring or initializing Control.js:"), e);
+        console.error("CRITICAL: Main bot logic could not be loaded. Check if Control.js exists and is correct.");
+         sock.ev.on('messages.upsert', async m => { // Basic fallback
+             console.log("Received message (critical fallback handler):", JSON.stringify(m, undefined, 2));
          });
     }
-    // ------------------------------------
+    // ------------------------------------------------------------------
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update
@@ -140,13 +143,12 @@ app.get('/qr', async (req, res) => {
         statusMessage = 'Waiting for QR code... Page will refresh.';
     }
 
-    // Send HTML page using correctly escaped template literal
-    res.send(`
+    res.send(\`
         <!DOCTYPE html>
         <html>
         <head>
             <title>WhatsApp QR Code - ${global.namebot || 'Bot'}</title>
-            <meta http-equiv="refresh" content="${pageRefresh}"> 
+            <meta http-equiv="refresh" content="\${pageRefresh}"> 
             <style>
                 body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 30px; }
                 img { border: 1px solid #ccc; margin-bottom: 20px; width: 300px; height: 300px; }
@@ -156,22 +158,21 @@ app.get('/qr', async (req, res) => {
         </head>
         <body>
             <h1>Link Bot: ${global.namebot || 'WhatsApp Bot'}</h1>
-            <div class="status">${statusMessage}</div>
-            ${qrImageData ? `<img src="${qrImageData}" alt="WhatsApp QR Code">` : ''}
-            <p>(Page auto-refreshes every ${pageRefresh} seconds)</p>
+            <div class="status">\${statusMessage}</div>
+            \${qrImageData ? \`<img src="\${qrImageData}" alt="WhatsApp QR Code">\` : ''}
+            <p>(Page auto-refreshes every \${pageRefresh} seconds)</p>
          </body>
         </html>
-    `); // Ensure backtick is the very last character here
+    \`);
 });
 
  app.get('/', (req, res) => {
-     // Redirect root to the QR page
      res.redirect('/qr');
  });
 
 app.listen(webServerPort, () => {
-    console.log(chalk.blueBright(`QR Code Web Server listening on internal port ${webServerPort}`));
-    console.log(chalk.blueBright(`Visit http://<your-elestio-url>/qr to scan the code`)); 
+    console.log(chalk.blueBright(\`QR Code Web Server listening on internal port \${webServerPort}\`));
+    console.log(chalk.blueBright(\`Visit http://<your-elestio-url>/qr to scan the code\`)); 
 });
 // --- End Express Web Server Setup ---
 
