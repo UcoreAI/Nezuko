@@ -8,9 +8,7 @@ const axios = require('axios');
 const _ = require('lodash');
 const { Boom } = require('@hapi/boom');
 const PhoneNumber = require('awesome-phonenumber');
-// ---- CORRECTED REQUIRE PATH BELOW ----
-const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); 
-// --------------------------------------
+const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); // Use Function.js
 const express = require('express');
 const qrcode = require('qrcode');
 
@@ -43,8 +41,11 @@ async function startNezuko() {
         printQRInTerminal: true, 
         browser: [global.namebot || 'UcoreAI','Safari','1.0.0'], 
         auth: state,
+        // Provide store functions to Baileys
         getMessage: async (key) => {
+            // ---- Use store variable defined above ----
             const msg = await store.loadMessage(key.remoteJid, key.id);
+            // -------------------------------------------
             return msg?.message || undefined;
         },
     });
@@ -167,6 +168,7 @@ app.get('/qr', async (req, res) => {
 });
 
  app.get('/', (req, res) => {
+     // Redirect root to the QR page
      res.redirect('/qr');
  });
 
@@ -186,3 +188,12 @@ startNezuko().catch(err => {
 process.on('unhandledRejection', (err) => {
     console.error(chalk.redBright('Unhandled Promise Rejection:'), err);
 });
+
+// File watching (Keep commented out for Docker)
+// let file = require.resolve(__filename)
+// fs.watchFile(file, () => {
+//     fs.unwatchFile(file)
+//     console.log(chalk.redBright(\`Update \${__filename}\`))
+//     delete require.cache[file]
+//     require(file) 
+// })
