@@ -16,20 +16,20 @@
   "author": "DikaArdnt",
   "license": "MIT",
   "dependencies": {
-    "better-sqlite3": "^11.1.2",        // Required by quick.db-sqlite
+    "better-sqlite3": "^11.1.2",
     "cfonts": "^3.2.0",
     "quick.db": "^9.1.7",
-    "quick.db-sqlite": "^1.0.6",      // <-- Make sure this is added
+    "quick.db-sqlite": "^1.0.6",
     "@adiwajshing/keyed-db": "^0.2.4",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^1.1.0",
     "@hapi/boom": "^10.0.1",
-    "@whiskeysockets/baileys": "npm:baileys@^6.7.16", 
+    "@whiskeysockets/baileys": "npm:baileys@^6.7.16",
     "acrcloud": "^1.4.0",
     "api-dylux": "^1.6.2",
     "aptoide-scraper": "^1.0.1",
     "awesome-phonenumber": "^6.11.1",
-    "axios": "^1.7.2", // Consider updating if needed for security
+    "axios": "^1.7.2",
     "body-parser": "^1.20.2",
     "chalk": "^4.1.2",
     "cheerio": "^1.0.0-rc.12",
@@ -43,57 +43,57 @@
     "file-type": "^16.5.4",
     "fluent-ffmpeg": "^2.1.2",
     "form-data": "^4.0.0",
-    "formidable": "^2.1.2", // Consider updating
+    "formidable": "^2.1.2",
     "fs": "0.0.1-security",
     "fs-extra": "^10.1.0",
     "g-i-s": "^2.1.7",
     "google-it": "^1.6.4",
     "google-tts-api": "^2.0.2",
-    "got": "^11.8.6", // Consider updating (v12+ uses ES modules)
+    "got": "^11.8.6",
     "heroku-client": "^3.1.0",
     "human-readable": "^0.2.1",
     "imagemagick": "^0.1.3",
     "imgbb-uploader": "^1.5.1",
     "javascript-obfuscator": "^4.1.0",
-    "jimp": "^0.16.13", // Consider updating
-    "jsdom": "^21.1.1", // Consider updating
+    "jimp": "^0.16.13",
+    "jsdom": "^21.1.1",
     "link-preview-js": "^3.0.4",
     "lodash": "^4.17.21",
-    "lowdb": "^2.1.0", // v2 is quite old, maybe consider update if needed
-    "moment-timezone": "^0.5.43", // Consider updating
-    "mongoose": "^6.10.0", // Consider updating to v7 or v8 if compatible
+    "lowdb": "^2.1.0",
+    "moment-timezone": "^0.5.43",
+    "mongoose": "^6.10.0",
     "nekos.life": "^3.0.0",
     "node-cron": "^3.0.2",
-    "node-fetch": "^2.6.11", // Consider v3 (ES module) or other libraries like undici
+    "node-fetch": "^2.6.11",
     "node-id3": "^0.2.6",
     "node-webpmux": "^3.1.7",
-    "nodemon": "^2.0.21", // Usually a devDependency
-    "openai": "^4.0.0", // Consider updating
+    "nodemon": "^2.0.21",
+    "openai": "^4.0.0",
     "os": "^0.1.2",
-    "pastebin-js": "^1.0.6", // Deprecated
+    "pastebin-js": "^1.0.6",
     "path": "^0.12.7",
     "perf_hooks": "0.0.1",
-    "pino": "^8.15.0", // Consider updating
+    "pino": "^8.15.0",
     "pm2": "^5.3.1",
-    "pretty-ms": "^7.0.1", // Consider updating
-    "protobufjs": "^6.11.4", // Consider updating
+    "pretty-ms": "^7.0.1",
+    "protobufjs": "^6.11.4",
     "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0",
     "remove.bg": "^1.3.0",
-    "request": "^2.88.2", // Deprecated
+    "request": "^2.88.2",
     "similarity": "^1.2.1",
-    "socket.io": "^4.6.1", // Consider updating
+    "socket.io": "^4.6.1",
     "spotifydl-x": "^0.3.5",
     "syntax-error": "^1.4.0",
     "systeminformation": "^5.22.11",
     "translate-google-api": "^1.0.4",
-    "unofficial-carbon-now": "^1.0.6", // Deprecated
+    "unofficial-carbon-now": "^1.0.6",
     "util": "^0.12.5",
     "wa-sticker-formatter": "^4.4.4",
     "xfarr-api": "^1.0.3",
     "yargs": "^17.7.2",
-    "youtube-yts": "^2.0.0", // Deprecated
-    "youtubedl-core": "^4.11.7" // Deprecated
+    "youtube-yts": "^2.0.0",
+    "youtubedl-core": "^4.11.7"
   },
   "directories": {
     "lib": "lib",
