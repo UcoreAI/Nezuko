@@ -17,7 +17,8 @@
   "license": "MIT",
   "dependencies": {
     "cfonts": "^3.2.0",
-    "quick.db": "^9.1.7", 
+    "quick.db": "^9.1.7",
+    "better-sqlite3": "^11.1.2", 
     "@adiwajshing/keyed-db": "^0.2.4",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^1.1.0",
