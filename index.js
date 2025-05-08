@@ -16,9 +16,9 @@ const qrcodeTerminal = require('qrcode-terminal'); // Only needed if printQRInTe
 const cfonts = require("cfonts"); // For banner
 const mongoose = require("mongoose"); // For DB
 
-// --- Fix: Correct QuickDB Driver Import ---
+// --- Fix: Use better-sqlite3 directly with QuickDB ---
 const { QuickDB } = require("quick.db"); // For QuickDB
-const { SqliteDriver } = require("quick.db-sqlite"); // Use the correct driver package
+const BetterSqlite3 = require('better-sqlite3'); // Require better-sqlite3 directly
 
 // --- Globals and Setup ---
 let currentQR = null;
@@ -50,14 +50,16 @@ if (!fs.existsSync(sessionDir)){
 const dbFilePath = path.join(sessionDir, 'quickdb.sqlite'); // Store DB in session dir
 console.log(chalk.yellow(`[QuickDB] Using database file: ${dbFilePath}`));
 try {
-    const driver = new SqliteDriver(dbFilePath); // Instantiate driver with path
+    // Instantiate better-sqlite3 database connection directly
+    const driver = new BetterSqlite3(dbFilePath, { /* options like verbose: console.log can go here */ }); 
+    // Pass the better-sqlite3 DATABASE OBJECT to QuickDB
     global.db = new QuickDB({ driver }); 
-    console.log(chalk.green("[QuickDB] Initialized successfully with SQLite driver."));
+    console.log(chalk.green("[QuickDB] Initialized successfully with better-sqlite3 driver."));
     // Optional: Test DB connection immediately
     // await global.db.set('testConnection', Date.now()); 
     // console.log(chalk.green("[QuickDB] Test write successful."));
 } catch (dbErr) {
-    console.error(chalk.redBright("[QuickDB] Failed to initialize SQLite driver:"), dbErr);
+    console.error(chalk.redBright("[QuickDB] Failed to initialize better-sqlite3 driver:"), dbErr);
     console.warn(chalk.yellow("[QuickDB] Falling back to default JSON driver (may not persist well in Docker)."));
     global.db = new QuickDB(); // Fallback
 }
@@ -75,8 +77,8 @@ async function connectMongo() {
         console.log(chalk.yellow("[Mongoose] Attempting connection..."));
         // Add connection options for better handling
         await mongoose.connect(MONGODB_URI, { 
-            useNewUrlParser: true, 
-            useUnifiedTopology: true,
+            // useNewUrlParser: true, // Deprecated in newer mongoose
+            // useUnifiedTopology: true, // Deprecated in newer mongoose
             serverSelectionTimeoutMS: 5000 // Timeout after 5s instead of 30s
          });
         console.log(chalk.green("[Mongoose] Connection Successful!"));
@@ -196,11 +198,16 @@ async function startNezuko() {
     let messageHandler;
     try {
         const messageHandlerModule = require('./handler/MessageHandler.js');
+        // ** Check the export from your MessageHandler.js again **
         if (messageHandlerModule && typeof messageHandlerModule.messageHandler === 'function') {
-             messageHandler = messageHandlerModule.messageHandler;
+             messageHandler = messageHandlerModule.messageHandler; 
              console.log(chalk.green("Loaded main message handler (exported as messageHandler)."));
+        } else if (messageHandlerModule && typeof messageHandlerModule === 'function') { 
+            // Handle case where module.exports = async function()...
+            messageHandler = messageHandlerModule; 
+            console.log(chalk.green("Loaded main message handler (default export)."));
         } else {
-            throw new Error("Exported message handler named 'messageHandler' not found or not a function in MessageHandler.js.");
+            throw new Error("Exported message handler not found or not a function in MessageHandler.js.");
         }
     } catch (e) {
         console.error(chalk.redBright("Critical error requiring/loading handler/MessageHandler.js:"), e);
@@ -212,19 +219,16 @@ async function startNezuko() {
     // --- Baileys Event Listeners ---
     client.ev.on('messages.upsert', async (chatUpdate) => {
         if (!chatUpdate.messages) return;
-        // Use smsg wrapper for easier message handling
         const m = smsg(client, chatUpdate.messages[0], store); 
 
         if (!m || !m.message) { 
-             // console.log("Ignoring empty or invalid message object"); 
              return; 
         }
         if (m.key && m.key.remoteJid == "status@broadcast") return;
-        if (m.key.id.startsWith("BAE5") && m.key.id.length === 16) return; // Ignore baileys junk messages
-        if (m.key.id.startsWith("3EB0") && m.key.id.length === 12) return; // Ignore baileys junk messages
+        if (m.key.id?.startsWith("BAE5") && m.key.id?.length === 16) return; 
+        if (m.key.id?.startsWith("3EB0") && m.key.id?.length === 12) return; 
 
         try {
-            // Pass the command collection to the handler
             await messageHandler(client, m, Commands, chatUpdate); 
         } catch (e) {
             console.error(chalk.redBright("Error executing message handler:"), e);
@@ -248,18 +252,17 @@ async function startNezuko() {
                 DisconnectReason.connectionReplaced, 
                 DisconnectReason.badSession, 
                 DisconnectReason.multideviceMismatch, 
-                DisconnectReason.forbidden // Added forbidden as unrecoverable
+                DisconnectReason.forbidden 
             ].includes(reasonCode);
 
             if (shouldReconnect) {
                 console.log(chalk.yellowBright("Attempting to reconnect in 5 seconds..."));
                 await sleep(5000);
-                // Let Docker/PM2 handle restart instead of recursive call
                 console.log(chalk.redBright("Exiting process to allow restart manager handle reconnect."));
                 process.exit(1); 
             } else {
                 console.log(chalk.redBright(`FATAL: Unrecoverable connection error (${reasonText}). Please delete session folder (${sessionDir}) and restart.`));
-                process.exit(1); // Exit on unrecoverable errors
+                process.exit(1); 
             }
         } else if (connection === 'open') {
             console.log(chalk.greenBright(`Successfully Connected to WA! Logged in as: ${client.user?.id?.split(':')[0] || client.user?.id || 'Unknown'}`));
@@ -277,7 +280,7 @@ async function startNezuko() {
     // Group Participants Update Handler 
     client.ev.on("group-participants.update", async (m) => {
         try { 
-            const WelcomeHandler = require("./handler/EventHandler"); // Load fresh? Or load once outside?
+            const WelcomeHandler = require("./handler/EventHandler"); 
             if (typeof WelcomeHandler === 'function') {
                  await WelcomeHandler(client, m);
             }
@@ -288,19 +291,17 @@ async function startNezuko() {
 
     // Contacts Update Handler 
      client.ev.on("contacts.update", async (update) => {
-        if (!MONGODB_URI) return; // Skip if no DB connected
+        if (!MONGODB_URI) return; 
         for (let contact of update) {
            let id = client.decodeJid(contact.id);
-           if (!id || id.includes('@g.us') || id.includes('@broadcast')) continue; // Skip groups/broadcasts
+           if (!id || id.includes('@g.us') || id.includes('@broadcast')) continue; 
            try {
                const usr = await global.user.findOne({ id: id });
                const contactName = contact.notify || contact.verifiedName || contact.name || id.split('@')[0];
                if (!usr) {
                    await new global.user({ id: id, name: contactName }).save();
-                   // console.log(`[DB] Added contact: ${contactName} (${id})`);
                } else if (usr.name !== contactName) {
                    await global.user.updateOne({ id: id }, { name: contactName });
-                   // console.log(`[DB] Updated contact: ${contactName} (${id})`);
                }
            } catch (dbErr) {
                console.error(`[DB] Error updating contact ${id}:`, dbErr);
@@ -308,7 +309,7 @@ async function startNezuko() {
         }
     });
 
-     // Add utility functions directly to client instance (optional, but keeps pattern)
+     // Add utility functions directly to client instance
      client.decodeJid = (jid) => {
          if (!jid) return jid;
          if (/:\d+@/gi.test(jid)) {
@@ -345,7 +346,6 @@ app.get('/qr', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     let qrImageData = null;
     let currentStatus = lastConnectionStatus || 'Initializing...';
-    // Display more informative status based on connection state
     let statusMessage = `Bot: ${global.namebot || 'Nezuko'} | Status: ${currentStatus}`;
     let pageRefresh = (currentStatus === 'open') ? 300 : 10; 
 
@@ -423,9 +423,9 @@ process.on('SIGTERM', async () => {
 });
 process.on('uncaughtException', (err, origin) => {
   console.error(chalk.redBright(`UNCAUGHT EXCEPTION at: ${origin}`), err);
-  process.exit(1); // Exit on uncaught exceptions to ensure clean state
+  process.exit(1); 
 });
 process.on('unhandledRejection', (reason, promise) => {
   console.error(chalk.redBright('Unhandled Rejection at:'), promise, 'reason:', reason);
-  // process.exit(1); // Optional: exit on unhandled rejections too
+  // process.exit(1);
 });
