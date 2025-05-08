@@ -15,8 +15,10 @@ const qrcode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal'); // Only needed if printQRInTerminal: false
 const cfonts = require("cfonts"); // For banner
 const mongoose = require("mongoose"); // For DB
+
+// --- Fix: Correct QuickDB Driver Import ---
 const { QuickDB } = require("quick.db"); // For QuickDB
-const SqliteDriver = require('quick.db/src/drivers/Sqlite.js'); // Driver for QuickDB
+const { SqliteDriver } = require("quick.db-sqlite"); // Use the correct driver package
 
 // --- Globals and Setup ---
 let currentQR = null;
@@ -35,17 +37,25 @@ console.log(chalk.blueBright(`Command Prefix: ${prefix}`));
 
 // Ensure session directory exists
 if (!fs.existsSync(sessionDir)){
-    fs.mkdirSync(sessionDir, { recursive: true }); // Use recursive if needed
-    console.log(chalk.green(`Created session directory: ${sessionDir}`));
+    try {
+        fs.mkdirSync(sessionDir, { recursive: true }); 
+        console.log(chalk.green(`Created session directory: ${sessionDir}`));
+    } catch (err) {
+        console.error(chalk.redBright(`Failed to create session directory ${sessionDir}:`), err);
+        process.exit(1); // Exit if we can't create session dir
+    }
 }
 
 // --- QuickDB Initialization ---
 const dbFilePath = path.join(sessionDir, 'quickdb.sqlite'); // Store DB in session dir
 console.log(chalk.yellow(`[QuickDB] Using database file: ${dbFilePath}`));
 try {
-    const driver = new SqliteDriver({ filePath: dbFilePath });
+    const driver = new SqliteDriver(dbFilePath); // Instantiate driver with path
     global.db = new QuickDB({ driver }); 
     console.log(chalk.green("[QuickDB] Initialized successfully with SQLite driver."));
+    // Optional: Test DB connection immediately
+    // await global.db.set('testConnection', Date.now()); 
+    // console.log(chalk.green("[QuickDB] Test write successful."));
 } catch (dbErr) {
     console.error(chalk.redBright("[QuickDB] Failed to initialize SQLite driver:"), dbErr);
     console.warn(chalk.yellow("[QuickDB] Falling back to default JSON driver (may not persist well in Docker)."));
@@ -63,7 +73,12 @@ async function connectMongo() {
     }
     try {
         console.log(chalk.yellow("[Mongoose] Attempting connection..."));
-        await mongoose.connect(MONGODB_URI);
+        // Add connection options for better handling
+        await mongoose.connect(MONGODB_URI, { 
+            useNewUrlParser: true, 
+            useUnifiedTopology: true,
+            serverSelectionTimeoutMS: 5000 // Timeout after 5s instead of 30s
+         });
         console.log(chalk.green("[Mongoose] Connection Successful!"));
         
         console.log(chalk.yellow("[Discord-XP] Setting MongoDB URL..."));
@@ -77,12 +92,12 @@ async function connectMongo() {
     }
 }
 
-// --- Command Loader --- (Adapted from heart.js)
+// --- Command Loader --- 
 const Commands = new Collection();
 Commands.prefix = prefix; // Set prefix
 
 const readCommands = () => {
-  let dir = path.join(__dirname, "./Organs/commands"); // Adjust path if needed
+  let dir = path.join(__dirname, "./Organs/commands"); 
   if (!fs.existsSync(dir)) {
       console.warn(chalk.yellow(`Commands directory not found: ${dir}`));
       return;
@@ -94,9 +109,14 @@ const readCommands = () => {
     dirs.forEach(async (res) => {
       let groups = res.toLowerCase();
       const categoryDir = path.join(dir, res);
-      if (!fs.statSync(categoryDir).isDirectory()) return; // Skip files, only process directories
+      // Ensure it's a directory before reading
+      if (!fs.existsSync(categoryDir) || !fs.statSync(categoryDir).isDirectory()) return; 
 
-      Commands.category = dirs.filter((v) => fs.statSync(path.join(dir, v)).isDirectory()).map((v) => v);
+      Commands.category = dirs.filter((v) => {
+          const fullPath = path.join(dir, v);
+          return fs.existsSync(fullPath) && fs.statSync(fullPath).isDirectory();
+      }).map((v) => v);
+      
       cmdlist[groups] = [];
       let files = fs
         .readdirSync(categoryDir)
@@ -106,14 +126,20 @@ const readCommands = () => {
       for (const file of files) {
         const filePath = path.join(categoryDir, file);
         try { 
+          // Clear cache for potential updates during runtime (optional)
+          // delete require.cache[require.resolve(filePath)]; 
           const command = require(filePath);
           if (!command || !command.name || !command.start) {
               console.warn(chalk.yellow(`--> Invalid command structure in ${file}, skipping.`));
               continue;
           }
+          // Prevent duplicate command names/aliases
+          if (Commands.has(command.name)) {
+               console.warn(chalk.yellow(`--> Duplicate command name "${command.name}" in ${file}, skipping.`));
+               continue;
+          }
           cmdlist[groups].push(command);
           Commands.set(command.name, command);
-          // console.log(chalk.greenBright(`--> Loaded: ${command.name}`)); // Optional: verbose logging
         } catch (loadErr) {
            console.error(chalk.redBright(`--> Failed to load command ${file}:`), loadErr);
         }
@@ -135,20 +161,18 @@ async function startNezuko() {
     readCommands(); // Load commands
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    // Low-level store for Baileys internal message data
     const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
 
     let { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(chalk.blueBright(`[Baileys] Using WA v${version.join('.')}, isLatest: ${isLatest}`));
 
-    client = makeWASocket({ // Assign to the outer 'client' variable
-        logger: pino({ level: 'silent' }), // Change to 'debug' for verbose Baileys logs
-        printQRInTerminal: false, // We use the web server
+    client = makeWASocket({ 
+        logger: pino({ level: 'silent' }), 
+        printQRInTerminal: false, 
         browser: [global.namebot || 'UcoreAI','Safari','3.0'],
         auth: state,
         version,
         getMessage: async (key) => {
-            // Ensure remoteJid is not undefined before accessing store
             if (!key.remoteJid) return undefined; 
             const msg = await store.loadMessage(key.remoteJid, key.id);
             return msg?.message || undefined;
@@ -157,11 +181,11 @@ async function startNezuko() {
 
     store?.bind(client.ev);
 
-    // --- CFonts Banner --- (Moved here from heart.js)
+    // --- CFonts Banner ---
     const randomHexs = `#${((Math.random() * 0xffffff) << 0).toString(16).padStart(6, "0")}`;
     const randomHex = `#${((Math.random() * 0xffffff) << 0).toString(16).padStart(6, "0")}`;
     const randomHexx = `#${((Math.random() * 0xffffff) << 0).toString(16).padStart(6, "0")}`;
-    cfonts.say(`${global.namebot || 'NEZUKO'}\n\nBY\n\nUcoreAI`, { // Use bot name from config
+    cfonts.say(`${global.namebot || 'NEZUKO'}\n\nBY\n\nUcoreAI`, { 
         font: "block", align: "center", colors: [randomHex, randomHexs],
         background: "transparent", letterSpacing: 1, lineHeight: 1, space: true,
         maxLength: "0", gradient: [randomHex, randomHexs, randomHexx],
@@ -172,21 +196,15 @@ async function startNezuko() {
     let messageHandler;
     try {
         const messageHandlerModule = require('./handler/MessageHandler.js');
-        // *** IMPORTANT: Use the correct export name based on your MessageHandler.js ***
         if (messageHandlerModule && typeof messageHandlerModule.messageHandler === 'function') {
-             messageHandler = messageHandlerModule.messageHandler; // Assign the function
-             console.log(chalk.green("Loaded main message handler from handler/MessageHandler.js"));
-        } else if (messageHandlerModule && typeof messageHandlerModule === 'function') {
-            // Handle case where module.exports = async function()...
-            messageHandler = messageHandlerModule; 
-            console.log(chalk.green("Loaded main message handler (default export) from handler/MessageHandler.js"));
-        }
-         else {
-            throw new Error("Exported message handler not found or not a function.");
+             messageHandler = messageHandlerModule.messageHandler;
+             console.log(chalk.green("Loaded main message handler (exported as messageHandler)."));
+        } else {
+            throw new Error("Exported message handler named 'messageHandler' not found or not a function in MessageHandler.js.");
         }
     } catch (e) {
         console.error(chalk.redBright("Critical error requiring/loading handler/MessageHandler.js:"), e);
-        messageHandler = (cli, chatUpdate) => { // Basic fallback handler
+        messageHandler = (cli, chatUpdate) => { 
              console.log(chalk.magenta("Basic fallback msg log:"), JSON.stringify(chatUpdate, undefined, 2));
         };
     }
@@ -194,15 +212,20 @@ async function startNezuko() {
     // --- Baileys Event Listeners ---
     client.ev.on('messages.upsert', async (chatUpdate) => {
         if (!chatUpdate.messages) return;
-        const m = smsg(client, chatUpdate.messages[0], store); // Use smsg wrapper
+        // Use smsg wrapper for easier message handling
+        const m = smsg(client, chatUpdate.messages[0], store); 
 
-        if (!m || !m.message) return;
+        if (!m || !m.message) { 
+             // console.log("Ignoring empty or invalid message object"); 
+             return; 
+        }
         if (m.key && m.key.remoteJid == "status@broadcast") return;
-        if (m.key.id.startsWith("BAE5") && m.key.id.length === 16) return;
-        if (m.key.id.startsWith("3EB0") && m.key.id.length === 12) return;
+        if (m.key.id.startsWith("BAE5") && m.key.id.length === 16) return; // Ignore baileys junk messages
+        if (m.key.id.startsWith("3EB0") && m.key.id.length === 12) return; // Ignore baileys junk messages
 
         try {
-            await messageHandler(client, m, Commands, chatUpdate); // Call the loaded handler
+            // Pass the command collection to the handler
+            await messageHandler(client, m, Commands, chatUpdate); 
         } catch (e) {
             console.error(chalk.redBright("Error executing message handler:"), e);
         }
@@ -212,11 +235,11 @@ async function startNezuko() {
         const { connection, lastDisconnect, qr } = update;
         const statusPrefix = chalk.cyanBright(`[Connection Update]`); 
         console.log(`${statusPrefix} status: ${connection || 'undefined'}`);
-        currentQR = qr || null; // Update QR
-        lastConnectionStatus = connection || lastConnectionStatus; // Update status
+        currentQR = qr || null; 
+        lastConnectionStatus = connection || lastConnectionStatus; 
 
         if (connection === 'close') {
-            let reasonCode = new Boom(lastDisconnect?.error)?.output?.statusCode || 500; // Default to 500 if unknown
+            let reasonCode = new Boom(lastDisconnect?.error)?.output?.statusCode || 500; 
             let reasonText = DisconnectReason[reasonCode] || 'Unknown';
             console.error(chalk.redBright(`Connection closed! Reason: ${reasonText} (${reasonCode})`), lastDisconnect?.error);
             
@@ -224,16 +247,16 @@ async function startNezuko() {
                 DisconnectReason.loggedOut, 
                 DisconnectReason.connectionReplaced, 
                 DisconnectReason.badSession, 
-                DisconnectReason.multideviceMismatch, // Indicates potential auth issue
-                DisconnectReason.badSession // Duplicate, but explicit
+                DisconnectReason.multideviceMismatch, 
+                DisconnectReason.forbidden // Added forbidden as unrecoverable
             ].includes(reasonCode);
 
             if (shouldReconnect) {
                 console.log(chalk.yellowBright("Attempting to reconnect in 5 seconds..."));
                 await sleep(5000);
-                // Don't call startNezuko recursively, let the process manager (like pm2 or Docker restart policy) handle it if needed.
-                // For simple restart:
-                process.exit(1); // Exit, Docker/Elestio should restart it
+                // Let Docker/PM2 handle restart instead of recursive call
+                console.log(chalk.redBright("Exiting process to allow restart manager handle reconnect."));
+                process.exit(1); 
             } else {
                 console.log(chalk.redBright(`FATAL: Unrecoverable connection error (${reasonText}). Please delete session folder (${sessionDir}) and restart.`));
                 process.exit(1); // Exit on unrecoverable errors
@@ -251,7 +274,7 @@ async function startNezuko() {
     client.ev.on('creds.update', saveCreds);
     client.ev.on('error', (err) => console.error(chalk.redBright("Socket Error:"), err));
 
-    // Group Participants Update Handler (Moved from heart.js)
+    // Group Participants Update Handler 
     client.ev.on("group-participants.update", async (m) => {
         try { 
             const WelcomeHandler = require("./handler/EventHandler"); // Load fresh? Or load once outside?
@@ -263,7 +286,7 @@ async function startNezuko() {
         }
     });
 
-    // Contacts Update Handler (Moved from heart.js)
+    // Contacts Update Handler 
      client.ev.on("contacts.update", async (update) => {
         if (!MONGODB_URI) return; // Skip if no DB connected
         for (let contact of update) {
@@ -287,7 +310,6 @@ async function startNezuko() {
 
      // Add utility functions directly to client instance (optional, but keeps pattern)
      client.decodeJid = (jid) => {
-        // ...(keep existing implementation)...
          if (!jid) return jid;
          if (/:\d+@/gi.test(jid)) {
            let decode = jidDecode(jid) || {};
@@ -298,7 +320,6 @@ async function startNezuko() {
          } else return jid;
      };
       client.downloadMediaMessage = async (message) => {
-        // ...(keep existing implementation from heart.js)...
          let mime = (message.msg || message).mimetype || "";
          let messageType = message.mtype
            ? message.mtype.replace(/Message/gi, "")
@@ -310,35 +331,37 @@ async function startNezuko() {
          }
          return buffer;
       };
-      // Add sendFile, sendText etc. if needed, adapted from heart.js
+      // Add other utilities like sendFile, sendText if needed
 
     console.log(chalk.green("Nezuko initialization sequence complete. Waiting for connection events..."));
-    return client; // Return the initialized socket
+    return client; 
 }
 
 // --- Web Server Setup ---
 const app = express();
-const webServerPort = process.env.PORT || 8080; // Ensure this is the port Elestio exposes
+const webServerPort = process.env.PORT || 8080; 
 
 app.get('/qr', async (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     let qrImageData = null;
     let currentStatus = lastConnectionStatus || 'Initializing...';
+    // Display more informative status based on connection state
     let statusMessage = `Bot: ${global.namebot || 'Nezuko'} | Status: ${currentStatus}`;
-    let pageRefresh = (currentStatus === 'open') ? 300 : 10; // Longer refresh if connected
+    let pageRefresh = (currentStatus === 'open') ? 300 : 10; 
 
     if (currentStatus === 'open') {
         statusMessage = `<span style="color: green; font-weight: bold;">CONNECTED!</span><br>Bot Name: ${global.namebot || 'Nezuko'}<br>Owner: ${global.nameowner || 'Unknown'} (${global.numberowner || 'N/A'}).<br>You can close this page.`;
     } else if (currentQR) {
         statusMessage = 'Scan the QR code below with WhatsApp:';
         try {
-            qrImageData = await qrcode.toDataURL(currentQR, { errorCorrectionLevel: 'L' }); // Use L for faster generation
+            qrImageData = await qrcode.toDataURL(currentQR, { errorCorrectionLevel: 'L' }); 
         } catch (err) {
             console.error("Error generating QR code image for web:", err);
             statusMessage = '<span style="color: red;">Error generating QR code image. Check logs.</span>';
         }
-    } else if (currentStatus.startsWith('close')) {
-        statusMessage = `<span style="color: red;">Connection Closed: ${currentStatus}. Bot may attempt to reconnect... Check logs.</span>`;
+    } else if (currentStatus && currentStatus.startsWith('close')) {
+         const reasonText = currentStatus.replace('close - ', '');
+        statusMessage = `<span style="color: red;">Connection Closed: ${reasonText}. Bot will attempt to restart... Check logs.</span>`;
     } else if (currentStatus === 'connecting') {
         statusMessage = 'Connecting to WhatsApp... Waiting for QR Code...';
     } else {
@@ -354,7 +377,7 @@ app.get('/qr', async (req, res) => {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
                 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; display: flex; flex-direction: column; align-items: center; padding-top: 30px; background-color: #f7f7f7; color: #333; }
-                img { border: 1px solid #ddd; margin-bottom: 20px; max-width: 90%; height: auto; background-color: white; padding: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+                img { border: 1px solid #ddd; margin-bottom: 20px; max-width: 90%; width: 300px; height: auto; background-color: white; padding: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
                 h1 { color: #555; }
                 .status { margin-bottom: 20px; font-size: 1.1em; line-height: 1.6em; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); max-width: 90%; width: 500px; text-align: center; border: 1px solid #eee; }
                 p { color: #777; font-size: 0.9em; }
@@ -371,7 +394,7 @@ app.get('/qr', async (req, res) => {
 
 app.get('/', (req, res) => res.redirect('/qr'));
 
-app.listen(webServerPort, '0.0.0.0', () => { // Listen on all interfaces
+app.listen(webServerPort, '0.0.0.0', () => { 
     console.log(chalk.blueBright(`QR Code Web Server listening on internal port ${webServerPort}`));
     console.log(chalk.blueBright(`Access QR page at /qr on your service URL (e.g., http://nezuko-u40295.vm.elestio.app/qr)`));
 });
@@ -382,14 +405,14 @@ startNezuko().catch(err => {
     console.error(chalk.redBright(" FATAL ERROR DURING BOT STARTUP SEQUENCE "));
     console.error(chalk.redBright("-----------------------------------------"));
     console.error(err);
-    process.exit(1); // Exit if startup fails critically
+    process.exit(1); 
 });
 
-// --- Graceful Shutdown (Optional but Recommended) ---
+// --- Graceful Shutdown & Error Handling ---
 process.on('SIGINT', async () => {
   console.log(chalk.yellow("SIGINT received, shutting down..."));
-  await client?.logout()?.catch(()=>{}); // Attempt logout
-  await mongoose?.disconnect()?.catch(()=>{}); // Disconnect DB
+  await client?.logout()?.catch(()=>{}); 
+  await mongoose?.disconnect()?.catch(()=>{}); 
   process.exit(0);
 });
 process.on('SIGTERM', async () => {
@@ -400,10 +423,9 @@ process.on('SIGTERM', async () => {
 });
 process.on('uncaughtException', (err, origin) => {
   console.error(chalk.redBright(`UNCAUGHT EXCEPTION at: ${origin}`), err);
-  // Consider whether to exit or just log, depending on severity
-  // process.exit(1); 
+  process.exit(1); // Exit on uncaught exceptions to ensure clean state
 });
 process.on('unhandledRejection', (reason, promise) => {
   console.error(chalk.redBright('Unhandled Rejection at:'), promise, 'reason:', reason);
-  // process.exit(1);
+  // process.exit(1); // Optional: exit on unhandled rejections too
 });
