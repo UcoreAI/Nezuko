@@ -16,6 +16,7 @@
   "author": "DikaArdnt",
   "license": "MIT",
   "dependencies": {
+    "cfonts": "^3.2.0", 
     "@adiwajshing/keyed-db": "^0.2.4",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^1.1.0",
@@ -31,7 +32,6 @@
     "cheerio": "^1.0.0-rc.12",
     "child_process": "^1.0.2",
     "cookie": "^0.5.0",
-    "crypto": "^1.0.1",
     "discord-mongoose-economy": "^1.2.0",
     "discord-xp": "^1.1.16",
     "dotenv": "^16.0.3",
@@ -98,10 +98,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/EternityBots/Nezuko.git"
+    "url": "git+https://github.com/UcoreAI/Nezuko.git"
   },
   "bugs": {
-    "url": "https://github.com/EternityBots/Nezuko/issues"
+    "url": "https://github.com/UcoreAI/Nezuko/issues"
   },
-  "homepage": "https://github.com/EternityBots/Nezuko#readme"
-}
+  "homepage": "https://github.com/UcoreAI/Nezuko#readme"
