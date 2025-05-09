@@ -6,67 +6,62 @@ const fs = require('fs');
 const pino = require('pino');
 const chalk = require('chalk');
 const path = require('path');
-const _ = require('lodash'); // lodash might not be used, potential removal
+const _ = require('lodash'); 
 const { Boom } = require('@hapi/boom');
-const PhoneNumber = require('awesome-phonenumber'); // Check if used by message handler or commands
-const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); // Ensure this path and functions are correct
+const PhoneNumber = require('awesome-phonenumber'); 
+const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetchJson, await, sleep } = require('./lib/Function'); 
 const express = require('express');
 const qrcode = require('qrcode');
-const qrcodeTerminal = require('qrcode-terminal'); // Only needed if printQRInTerminal: false
-const cfonts = require("cfonts"); // For banner
-const mongoose = require("mongoose"); // For DB
+const qrcodeTerminal = require('qrcode-terminal'); 
+const cfonts = require("cfonts"); 
+const mongoose = require("mongoose"); 
 
-// --- Fix: Use better-sqlite3 directly with QuickDB ---
-const { QuickDB } = require("quick.db"); // For QuickDB
-const BetterSqlite3 = require('better-sqlite3'); // Require better-sqlite3 directly
+const { QuickDB } = require("quick.db"); 
+const BetterSqlite3 = require('better-sqlite3'); 
+
+// --- Fix: Import Collection ---
+const { Collection } = require("./Organs/typings"); 
+// --- End Fix ---
 
 // --- Globals and Setup ---
 let currentQR = null;
 let lastConnectionStatus = null;
 let botStartTime = Date.now();
-let client = null; // Keep a reference to the socket
+let client = null; 
 
-const MONGODB_URI = process.env.MONGODB_URI || global.mongodb; // Get from ENV or config.js
-const prefix = process.env.PREFIX || global.prefa || '!'; // Get from ENV or config.js or default
-const sessionId = process.env.SESSION_ID || global.sessionName || 'session'; // Get from ENV or config.js or default
-const sessionDir = path.join(__dirname, sessionId); // Use sessionId for directory name
+const MONGODB_URI = process.env.MONGODB_URI || global.mongodb; 
+const prefix = process.env.PREFIX || global.prefa || '!'; 
+const sessionId = process.env.SESSION_ID || global.sessionName || 'session'; 
+const sessionDir = path.join(__dirname, sessionId); 
 
 console.log(chalk.blueBright(`Session ID: ${sessionId}`));
 console.log(chalk.blueBright(`Session Directory: ${sessionDir}`));
 console.log(chalk.blueBright(`Command Prefix: ${prefix}`));
 
-// Ensure session directory exists
 if (!fs.existsSync(sessionDir)){
     try {
         fs.mkdirSync(sessionDir, { recursive: true }); 
         console.log(chalk.green(`Created session directory: ${sessionDir}`));
     } catch (err) {
         console.error(chalk.redBright(`Failed to create session directory ${sessionDir}:`), err);
-        process.exit(1); // Exit if we can't create session dir
+        process.exit(1); 
     }
 }
 
-// --- QuickDB Initialization ---
-const dbFilePath = path.join(sessionDir, 'quickdb.sqlite'); // Store DB in session dir
+const dbFilePath = path.join(sessionDir, 'quickdb.sqlite'); 
 console.log(chalk.yellow(`[QuickDB] Using database file: ${dbFilePath}`));
 try {
-    // Instantiate better-sqlite3 database connection directly
-    const driver = new BetterSqlite3(dbFilePath, { /* options like verbose: console.log can go here */ }); 
-    // Pass the better-sqlite3 DATABASE OBJECT to QuickDB
+    const driver = new BetterSqlite3(dbFilePath, { /* verbose: console.log */ }); 
     global.db = new QuickDB({ driver }); 
     console.log(chalk.green("[QuickDB] Initialized successfully with better-sqlite3 driver."));
-    // Optional: Test DB connection immediately
-    // await global.db.set('testConnection', Date.now()); 
-    // console.log(chalk.green("[QuickDB] Test write successful."));
 } catch (dbErr) {
     console.error(chalk.redBright("[QuickDB] Failed to initialize better-sqlite3 driver:"), dbErr);
-    console.warn(chalk.yellow("[QuickDB] Falling back to default JSON driver (may not persist well in Docker)."));
+    console.warn(chalk.yellow("[QuickDB] Falling back to default JSON driver. Ensure old quickdb.sqlite is removed if switching."));
     global.db = new QuickDB(); // Fallback
 }
 
-// --- Mongoose and Discord-XP Setup ---
 global.Levels = require("discord-xp");
-global.user = require("./models/user"); // Mongoose user model
+global.user = require("./models/user"); 
 
 async function connectMongo() {
     if (!MONGODB_URI) {
@@ -75,16 +70,13 @@ async function connectMongo() {
     }
     try {
         console.log(chalk.yellow("[Mongoose] Attempting connection..."));
-        // Add connection options for better handling
         await mongoose.connect(MONGODB_URI, { 
-            // useNewUrlParser: true, // Deprecated in newer mongoose
-            // useUnifiedTopology: true, // Deprecated in newer mongoose
-            serverSelectionTimeoutMS: 5000 // Timeout after 5s instead of 30s
+            serverSelectionTimeoutMS: 5000 
          });
         console.log(chalk.green("[Mongoose] Connection Successful!"));
         
         console.log(chalk.yellow("[Discord-XP] Setting MongoDB URL..."));
-        await Levels.setURL(MONGODB_URI); // Set URL after successful mongoose connection
+        await Levels.setURL(MONGODB_URI); 
         console.log(chalk.green("[Discord-XP] MongoDB URL set."));
         return true;
     } catch (err) {
@@ -94,9 +86,8 @@ async function connectMongo() {
     }
 }
 
-// --- Command Loader --- 
-const Commands = new Collection();
-Commands.prefix = prefix; // Set prefix
+const Commands = new Collection(); // Now Collection is defined
+Commands.prefix = prefix; 
 
 const readCommands = () => {
   let dir = path.join(__dirname, "./Organs/commands"); 
@@ -111,7 +102,6 @@ const readCommands = () => {
     dirs.forEach(async (res) => {
       let groups = res.toLowerCase();
       const categoryDir = path.join(dir, res);
-      // Ensure it's a directory before reading
       if (!fs.existsSync(categoryDir) || !fs.statSync(categoryDir).isDirectory()) return; 
 
       Commands.category = dirs.filter((v) => {
@@ -128,14 +118,11 @@ const readCommands = () => {
       for (const file of files) {
         const filePath = path.join(categoryDir, file);
         try { 
-          // Clear cache for potential updates during runtime (optional)
-          // delete require.cache[require.resolve(filePath)]; 
           const command = require(filePath);
           if (!command || !command.name || !command.start) {
               console.warn(chalk.yellow(`--> Invalid command structure in ${file}, skipping.`));
               continue;
           }
-          // Prevent duplicate command names/aliases
           if (Commands.has(command.name)) {
                console.warn(chalk.yellow(`--> Duplicate command name "${command.name}" in ${file}, skipping.`));
                continue;
@@ -145,7 +132,7 @@ const readCommands = () => {
         } catch (loadErr) {
            console.error(chalk.redBright(`--> Failed to load command ${file}:`), loadErr);
         }
-        await sleep(5); // Small delay
+        await sleep(5); 
       }
     });
     Commands.list = cmdlist;
@@ -155,12 +142,11 @@ const readCommands = () => {
   }
 };
 
-// --- Main Bot Function ---
 async function startNezuko() {
     console.log(chalk.greenBright("Attempting to start Nezuko bot (UcoreAI)..."));
     
-    await connectMongo(); // Connect DB before starting Baileys
-    readCommands(); // Load commands
+    await connectMongo(); 
+    readCommands(); 
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) });
@@ -183,7 +169,6 @@ async function startNezuko() {
 
     store?.bind(client.ev);
 
-    // --- CFonts Banner ---
     const randomHexs = `#${((Math.random() * 0xffffff) << 0).toString(16).padStart(6, "0")}`;
     const randomHex = `#${((Math.random() * 0xffffff) << 0).toString(16).padStart(6, "0")}`;
     const randomHexx = `#${((Math.random() * 0xffffff) << 0).toString(16).padStart(6, "0")}`;
@@ -194,16 +179,13 @@ async function startNezuko() {
         independentGradient: false, transitionGradient: true, env: "node",
     });
 
-    // --- Load Message Handler ---
     let messageHandler;
     try {
         const messageHandlerModule = require('./handler/MessageHandler.js');
-        // ** Check the export from your MessageHandler.js again **
         if (messageHandlerModule && typeof messageHandlerModule.messageHandler === 'function') {
              messageHandler = messageHandlerModule.messageHandler; 
              console.log(chalk.green("Loaded main message handler (exported as messageHandler)."));
         } else if (messageHandlerModule && typeof messageHandlerModule === 'function') { 
-            // Handle case where module.exports = async function()...
             messageHandler = messageHandlerModule; 
             console.log(chalk.green("Loaded main message handler (default export)."));
         } else {
@@ -216,7 +198,6 @@ async function startNezuko() {
         };
     }
 
-    // --- Baileys Event Listeners ---
     client.ev.on('messages.upsert', async (chatUpdate) => {
         if (!chatUpdate.messages) return;
         const m = smsg(client, chatUpdate.messages[0], store); 
@@ -266,7 +247,7 @@ async function startNezuko() {
             }
         } else if (connection === 'open') {
             console.log(chalk.greenBright(`Successfully Connected to WA! Logged in as: ${client.user?.id?.split(':')[0] || client.user?.id || 'Unknown'}`));
-            console.log(chalk.blueBright(`QR Code page at http://<your-elestio-url>/qr should now show 'Connected!'`));
+            console.log(chalk.blueBright(`QR Code page at http://<your-elestio-url>/qr will now show 'Connected!'`));
         }
         
         if (qr) {
@@ -277,7 +258,6 @@ async function startNezuko() {
     client.ev.on('creds.update', saveCreds);
     client.ev.on('error', (err) => console.error(chalk.redBright("Socket Error:"), err));
 
-    // Group Participants Update Handler 
     client.ev.on("group-participants.update", async (m) => {
         try { 
             const WelcomeHandler = require("./handler/EventHandler"); 
@@ -289,7 +269,6 @@ async function startNezuko() {
         }
     });
 
-    // Contacts Update Handler 
      client.ev.on("contacts.update", async (update) => {
         if (!MONGODB_URI) return; 
         for (let contact of update) {
@@ -309,7 +288,6 @@ async function startNezuko() {
         }
     });
 
-     // Add utility functions directly to client instance
      client.decodeJid = (jid) => {
          if (!jid) return jid;
          if (/:\d+@/gi.test(jid)) {
@@ -332,13 +310,11 @@ async function startNezuko() {
          }
          return buffer;
       };
-      // Add other utilities like sendFile, sendText if needed
 
     console.log(chalk.green("Nezuko initialization sequence complete. Waiting for connection events..."));
     return client; 
 }
 
-// --- Web Server Setup ---
 const app = express();
 const webServerPort = process.env.PORT || 8080; 
 
@@ -368,7 +344,6 @@ app.get('/qr', async (req, res) => {
         statusMessage = 'Initializing connection... Waiting for QR code... Page will refresh.';
     }
 
-    // Send HTML page
     res.send(`<!DOCTYPE html>
         <html>
         <head>
@@ -399,7 +374,6 @@ app.listen(webServerPort, '0.0.0.0', () => {
     console.log(chalk.blueBright(`Access QR page at /qr on your service URL (e.g., http://nezuko-u40295.vm.elestio.app/qr)`));
 });
 
-// --- Start the Bot ---
 startNezuko().catch(err => {
     console.error(chalk.redBright("-----------------------------------------"));
     console.error(chalk.redBright(" FATAL ERROR DURING BOT STARTUP SEQUENCE "));
@@ -408,7 +382,6 @@ startNezuko().catch(err => {
     process.exit(1); 
 });
 
-// --- Graceful Shutdown & Error Handling ---
 process.on('SIGINT', async () => {
   console.log(chalk.yellow("SIGINT received, shutting down..."));
   await client?.logout()?.catch(()=>{}); 
@@ -427,5 +400,4 @@ process.on('uncaughtException', (err, origin) => {
 });
 process.on('unhandledRejection', (reason, promise) => {
   console.error(chalk.redBright('Unhandled Rejection at:'), promise, 'reason:', reason);
-  // process.exit(1);
 });
