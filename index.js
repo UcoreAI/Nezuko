@@ -1,3 +1,20 @@
+// --- STEP 2: Add Crypto Polyfill ---
+if (typeof global.crypto === 'undefined') {
+  try {
+    global.crypto = require('node:crypto'); // Use 'node:crypto' for modern Node.js
+    console.log(chalk.yellowBright("[Polyfill] global.crypto was undefined, now defined using 'node:crypto'."));
+  } catch (e) {
+    try {
+      global.crypto = require('crypto'); // Fallback for older Node.js if 'node:crypto' fails
+      console.log(chalk.yellowBright("[Polyfill] global.crypto was undefined, now defined using 'crypto'."));
+    } catch (err) {
+      console.error(chalk.redBright("[Polyfill] Failed to polyfill global.crypto:"), err);
+      // If crypto is absolutely essential for Baileys, the bot might not function without it.
+    }
+  }
+}
+// --- End Polyfill ---
+
 require('dotenv').config(); // Load .env file first
 require('./config'); // Then load hardcoded config.js
 
@@ -19,9 +36,7 @@ const mongoose = require("mongoose");
 const { QuickDB } = require("quick.db"); 
 const BetterSqlite3 = require('better-sqlite3'); 
 
-// --- Fix: Import Collection ---
-const { Collection } = require("./Organs/typings"); 
-// --- End Fix ---
+const { Collection } = require("./Organs/typings"); // Ensure this path is correct
 
 // --- Globals and Setup ---
 let currentQR = null;
@@ -57,7 +72,7 @@ try {
 } catch (dbErr) {
     console.error(chalk.redBright("[QuickDB] Failed to initialize better-sqlite3 driver:"), dbErr);
     console.warn(chalk.yellow("[QuickDB] Falling back to default JSON driver. Ensure old quickdb.sqlite is removed if switching."));
-    global.db = new QuickDB(); // Fallback
+    global.db = new QuickDB(); 
 }
 
 global.Levels = require("discord-xp");
@@ -86,7 +101,7 @@ async function connectMongo() {
     }
 }
 
-const Commands = new Collection(); // Now Collection is defined
+const Commands = new Collection(); 
 Commands.prefix = prefix; 
 
 const readCommands = () => {
