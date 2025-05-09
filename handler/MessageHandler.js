@@ -1,5 +1,4 @@
-// No need to require settings or heart here anymore, index.js handles setup
-
+// Relies on index.js for settings and global initializations (db, Levels, user, Mongo_URL, prefix)
 const {
   generateWAMessage,
   areJidsSameUser,
@@ -15,52 +14,44 @@ const chalk = require("chalk");
 const cool = new Collection(); // Cooldown collection
 
 // --- Define the Handler Function ---
-// This function is called by index.js for every new message
 async function handleMessage(client, m, commands, chatUpdate) { 
   try {
-    // Basic message validation
     if (!m || !m.key || !m.sender || !m.from) {
        console.warn(chalk.yellow("[MessageHandler] Received incomplete message object:"), m);
-       return; // Ignore incomplete messages
+       return; 
     }
-    // Ignore status updates and potential Baileys noise
     if (m.key.remoteJid === "status@broadcast") return;
     if (m.key.id?.startsWith("BAE5") && m.key.id?.length === 16) return;
     if (m.key.id?.startsWith("3EB0") && m.key.id?.length === 12) return;
 
-    // Essential data extraction (using smsg results from index.js)
     let { type, isGroup, sender, from, text: body, args, pushName, quoted, mime, isMedia } = m; 
-    body = body || ""; // Ensure body is a string
+    body = body || ""; 
 
-    // Get prefix from global (set in index.js)
-    const prefix = Commands.prefix || '!'; // Use prefix from Commands collection or default
+    const prefix = Commands.prefix || '!'; // Get prefix from Commands collection (set in index.js)
 
-    // Command Parsing Logic (improved)
     let isCmd = body.startsWith(prefix);
     let commandName = "";
-    let commandArgs = []; // Use a different name than 'args' from smsg if needed
-    let commandInputText = ""; // Text after command name
+    let commandArgs = []; 
+    let commandInputText = ""; 
 
     if (isCmd) {
         const commandBody = body.slice(prefix.length).trim();
         const commandParts = commandBody.split(/ +/);
         commandName = commandParts.shift().toLowerCase();
-        commandArgs = commandParts; // Arguments after the command name
+        commandArgs = commandParts; 
         commandInputText = commandArgs.join(" ");
     }
     
-    // Find the command
     const cmd = commandName ? ( 
       commands.get(commandName) ||
       Array.from(commands.values()).find((v) =>
-        v.alias && Array.isArray(v.alias) && v.alias.find((x) => x.toLowerCase() == commandName) // Ensure alias is array
-      )) : null; // Use null if no command name
+        v.alias && Array.isArray(v.alias) && v.alias.find((x) => x.toLowerCase() == commandName) 
+      )) : null; 
 
-    // Logging (only for valid commands)
+    // Logging
     if (isCmd && cmd) {
         let metadata = isGroup ? await client.groupMetadata(from).catch(() => null) : {};
         let groupName = isGroup ? metadata?.subject : "Private Chat";
-
         console.log(
           chalk.cyanBright(`[CMD] ${prefix}${commandName}`) + 
           chalk.yellow(` ${args.join(" ")}`) + 
@@ -68,27 +59,24 @@ async function handleMessage(client, m, commands, chatUpdate) {
           chalk.magentaBright(` in ${groupName || from}`)
         );
     }
-
-    // --- Database Checks (ensure global.db is ready) ---
+    
+    // --- Database Checks ---
     if (!global.db) {
-        console.error(chalk.red("[MessageHandler] DB not ready, cannot perform checks."));
-        // Decide if commands that NEED db should be blocked here
-        // if (cmd && cmd.needsDb) return m.reply("Database not ready, please wait.");
+        console.error(chalk.red("[MessageHandler] DB not ready for command checks."));
     } else {
-        // Ban Check
         const banList = await global.db.get("ban").catch(() => []) || [];
         if (Array.isArray(banList) && banList.includes(sender)) {
             console.log(chalk.red(`User ${sender} is banned, blocking command.`));
             return m.reply(`You are banned from using commands ❌`);
         }
         
-        // Anti-link Check (only if global.mods is available and setup)
         const modsList = await global.db.get("mods").catch(() => []) || [];
         if (isGroup && Array.isArray(modsList) && modsList.includes(from)) {
              if (body.includes("://chat.whatsapp.com/") || body.includes("://api.whatsapp.com/")) {
                 const ownerArray = Array.isArray(global.owner) ? global.owner : [global.owner];
                 const iscreator = ownerArray.map((v) => String(v).replace(/[^0-9]/g, "") + "@s.whatsapp.net").includes(sender);
-                let groupAdmin = isGroup ? (await client.groupMetadata(from).catch(()=>({participants:[]}))).participants.filter(p=>p.admin).map(p=>p.id) : [];
+                let groupMetadataForAdminCheck = await client.groupMetadata(from).catch(()=>({participants:[]}));
+                let groupAdmin = isGroup ? groupMetadataForAdminCheck.participants.filter(p=>p.admin).map(p=>p.id) : [];
                 let isAdmin = isGroup ? groupAdmin.includes(sender) : false;
 
                 if (!iscreator && !isAdmin) {
@@ -96,58 +84,50 @@ async function handleMessage(client, m, commands, chatUpdate) {
                       console.log(chalk.yellow(`[Anti-Link] Removing user ${sender} from group ${from} for sending link.`));
                       await client.sendMessage(from, { delete: m.key });
                       await client.groupParticipantsUpdate(from, [sender], "remove");
-                      // Maybe send a notification message?
-                      // await client.sendText(from, `User @${sender.split('@')[0]} removed for sending a group link.`, null, { mentions: [sender] });
                    } catch (e) {
                       console.error(chalk.red(`[Anti-Link] Failed to remove user ${sender}:`), e);
-                      m.reply(`Link detected! Failed to remove user.`); // Inform user if removal fails
+                      m.reply(`Link detected! Failed to remove user.`); 
                    }
-                   return; // Stop further processing after removal
+                   return; 
                 }
              }
         }
     }
     
-    // --- Command Execution ---
-    
-    // If it's not a command, stop here
     if (!isCmd || !cmd) return; 
-
-    // Check if command is owner only
-    if (cmd.owner && !iscreator) {
-       return m.reply("Only the bot owner can use this command.");
-    }
-
-    // Check if command is group only
-    if (cmd.group && !isGroup) {
-        return m.reply("This command can only be used in groups.");
-    }
-
-    // Check if command requires admin
-    if (cmd.admin && isGroup && !isAdmin) {
-        return m.reply("You need to be a group admin to use this command.");
-    }
-
-    // Check if command requires bot to be admin
-    if (cmd.botAdmin && isGroup && !isBotAdmin) {
-        return m.reply("I need to be an admin in this group to execute this command.");
-    }
     
-    // Check if command requires NSFW enabled (assuming nsfw is stored per-group in DB)
+    const ownerArrayForCmd = Array.isArray(global.owner) ? global.owner : [global.owner];
+    const iscreator = ownerArrayForCmd.map((v) => String(v).replace(/[^0-9]/g, "") + "@s.whatsapp.net").includes(sender);
+    
+    if (cmd.owner && !iscreator) return m.reply("Only the bot owner can use this command.");
+    if (cmd.group && !isGroup) return m.reply("This command can only be used in groups.");
+
+    let metadataForAdminCheck = isGroup ? await client.groupMetadata(from).catch(()=>null) : {};
+    let participantsForAdminCheck = isGroup && metadataForAdminCheck ? metadataForAdminCheck.participants : [];
+    participantsForAdminCheck = participantsForAdminCheck || [];
+    let groupAdminForCmd = isGroup ? participantsForAdminCheck.filter((v) => v.admin !== null).map((v) => v.id) : [];
+    const botNumber = client.user?.id ? await client.decodeJid(client.user.id) : "";
+    let isBotAdmin = isGroup ? groupAdminForCmd.includes(botNumber) : false;
+    let isAdmin = isGroup ? groupAdminForCmd.includes(sender) : false;
+
+
+    if (cmd.admin && isGroup && !isAdmin) return m.reply("You need to be a group admin to use this command.");
+    if (cmd.botAdmin && isGroup && !isBotAdmin) return m.reply("I need to be an admin in this group to execute this command.");
+    
     const nsfwList = global.db ? await global.db.get("nsfw").catch(()=>[]) || [] : [];
     if (cmd.nsfw && isGroup && (!Array.isArray(nsfwList) || !nsfwList.includes(from)) ) {
        return m.reply("NSFW commands are not enabled in this group.");
     }
 
-    // Cooldown logic
-    if (!iscreator) { // Owners bypass cooldown
+    // Cooldown
+    if (!iscreator) { 
         if (!cool.has(sender)) {
             cool.set(sender, new Collection());
         }
         const now = Date.now();
         const timestamps = cool.get(sender);
-        const cdAmount = (cmd.cool || 3) * 1000; // Default 3 seconds cooldown if not specified
-        if (timestamps.has(cmd.name)) { // Cooldown per command
+        const cdAmount = (cmd.cool || 3) * 1000; 
+        if (timestamps.has(cmd.name)) { 
             const expiration = timestamps.get(cmd.name) + cdAmount;
             if (now < expiration) {
                 let timeLeft = (expiration - now) / 1000;
@@ -158,37 +138,49 @@ async function handleMessage(client, m, commands, chatUpdate) {
                 ).catch(e => console.error("Error sending cooldown message:", e)); 
             }
         }
-        timestamps.set(cmd.name, now);
-        setTimeout(() => timestamps.delete(cmd.name), cdAmount);
+        if (cdAmount > 0) {
+            timestamps.set(cmd.name, now);
+            setTimeout(() => timestamps.delete(cmd.name), cdAmount);
+        }
     }
 
-    // React if configured
+    // React
     if (cmd.react) {
        const reactm = { react: { text: cmd.react, key: m.key } };
        await client.sendMessage(m.from, reactm).catch(e => console.error("Error sending react:", e)); 
     }
     
-    // --- Execute the command's start function ---
+    // XP System
+    if (global.Levels && typeof Levels.appendXp === 'function' && process.env.MONGODB_URI) { 
+       try {
+          const randomXp = Math.floor(Math.random() * 3) + 1; 
+          await Levels.appendXp(m.sender, "bot", randomXp); 
+       } catch (xpError) {
+          console.error("[XP System] Error appending XP:", xpError);
+       }
+    }
+    
+    // Execute Command
     console.log(chalk.greenBright(`Executing command: ${prefix}${cmd.name} by ${pushName} (${sender})`));
     await cmd.start(client, m, {
-      name: "client", // Consider removing or making dynamic
-      metadata: isGroup ? await client.groupMetadata(from).catch(()=>null) : {}, // Re-fetch or pass from above
+      name: "client", 
+      metadata: isGroup ? await client.groupMetadata(from).catch(()=>null) : {}, 
       pushName: pushName,
       participants,
-      body: m.body, // Pass the processed body from smsg
+      body: m.body, 
       ban: global.ban || [], 
-      args: commandArgs, // Pass the parsed args
-      ar: commandArgs.map(a => a.toLowerCase()), // Pass lowercase parsed args
+      args: commandArgs, 
+      ar: commandArgs.map(a => a.toLowerCase()), 
       nsfw: global.nsfw || [], 
       isAdmin,
-      groupAdmin,
-      groupName,
-      text: commandInputText, // Pass text after command name
-      q: commandInputText, // Common alias for text
+      groupAdmin: groupAdminForCmd, // Use the locally fetched one
+      groupName: isGroup ? (await client.groupMetadata(from).catch(()=>null))?.subject : "Private Chat",
+      text: commandInputText, 
+      q: commandInputText, 
       wlc: global.wlc || [], 
       mods: global.mods || [], 
       quoted,
-      flags, // Pass flags if your commands use them
+      flags, 
       mentionByTag,
       mime,
       isBotAdmin,
@@ -198,22 +190,13 @@ async function handleMessage(client, m, commands, chatUpdate) {
       commands: Commands, 
       Function: Func, 
       toUpper: function toUpper(query) { 
-        return String(query).replace(/^\w/, (c) => c.toUpperCase()); // Ensure query is string
+        return String(query).replace(/^\w/, (c) => c.toUpperCase()); 
       },
     });
 
   } catch (e) {
     console.error(chalk.redBright("--- Error in MessageHandler ---"));
     console.error(e); 
-    // Send error to owner (optional)
-    // try {
-    //    const ownerJid = (Array.isArray(global.owner) ? global.owner[0] : global.owner)?.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-    //    if (ownerJid) {
-    //       await client.sendText(ownerJid, `Error processing command from ${m.sender} in ${m.from}:\n${e.stack || e}`);
-    //    }
-    // } catch (errSend) {
-    //    console.error("Failed to send error notification to owner:", errSend);
-    // }
   }
 }
 
